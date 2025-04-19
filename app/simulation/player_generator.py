@@ -4,6 +4,7 @@ Player generation system for Valorant simulation.
 from typing import Dict, List, Optional, Tuple, Union
 import random
 import names
+import uuid
 from .player_validation import PlayerValidation, ValidationError
 
 class PlayerGenerator:
@@ -13,6 +14,16 @@ class PlayerGenerator:
     MIN_AGE = 16
     MAX_AGE = 30
     BASE_SALARY = 50000
+
+    # Gamer tag components for generating realistic nicknames
+    GAMER_TAG_PREFIXES = ['', 'The', 'Pro', 'Team', 'Mr', 'Young', 'Old', 'Pure']
+    GAMER_TAG_WORDS = [
+        'Ace', 'Clutch', 'Aim', 'Shot', 'Hawk', 'Eagle', 'Wolf', 'Tiger',
+        'Ninja', 'Shadow', 'Storm', 'Fire', 'Ice', 'Flash', 'Quick', 'Swift',
+        'Sniper', 'Guard', 'Shield', 'Blade', 'Knight', 'King', 'Legend',
+        'Phoenix', 'Dragon', 'Viper', 'Sage', 'Hunter', 'Scout', 'Warrior'
+    ]
+    GAMER_TAG_SUFFIXES = ['', 'X', 'TV', 'Pro', 'TTV', 'YT', 'Gaming']
 
     # Region definitions with associated countries
     REGIONS = {
@@ -35,12 +46,34 @@ class PlayerGenerator:
         """Initialize the player generator."""
         self.validation = PlayerValidation()
 
+    def _generate_gamer_tag(self) -> str:
+        """Generate a realistic gamer tag."""
+        # 30% chance to use a prefix
+        prefix = random.choice(self.GAMER_TAG_PREFIXES) if random.random() < 0.3 else ''
+        
+        # Main part of the tag
+        if random.random() < 0.3:  # 30% chance for two words
+            main = random.choice(self.GAMER_TAG_WORDS) + random.choice(self.GAMER_TAG_WORDS)
+        else:
+            main = random.choice(self.GAMER_TAG_WORDS)
+            
+        # 40% chance to add a suffix
+        suffix = random.choice(self.GAMER_TAG_SUFFIXES) if random.random() < 0.4 else ''
+        
+        # 20% chance to add a number
+        if random.random() < 0.2:
+            suffix = str(random.randint(0, 99)) + suffix
+            
+        tag_parts = [p for p in [prefix, main, suffix] if p]
+        return ''.join(tag_parts)
+
     def generate_player(
         self,
         region: Optional[str] = None,
         role: Optional[str] = None,
         min_rating: float = 60.0,
-        max_rating: float = 95.0
+        max_rating: float = 95.0,
+        max_age: Optional[int] = None
     ) -> Dict[str, Union[str, int, float, Dict]]:
         """Generate a single player with specified constraints."""
         # Validate inputs
@@ -58,6 +91,9 @@ class PlayerGenerator:
         if rating_error:
             errors.append(rating_error)
 
+        if max_age and (max_age < self.MIN_AGE or max_age > self.MAX_AGE):
+            errors.append(ValidationError("age", f"Max age must be between {self.MIN_AGE} and {self.MAX_AGE}"))
+
         if errors:
             raise ValueError(f"Invalid parameters: {', '.join(e.message for e in errors)}")
 
@@ -65,12 +101,13 @@ class PlayerGenerator:
         selected_region = region or random.choice(list(self.REGIONS.keys()))
         selected_role = role or random.choice(list(self.ROLES.keys()))
         
-        age = random.randint(self.MIN_AGE, self.MAX_AGE)
+        age = random.randint(self.MIN_AGE, max_age or self.MAX_AGE)
         nationality = random.choice(self.REGIONS[selected_region])
         
         # Generate name (currently male-focused due to pro scene demographics)
         first_name = names.get_first_name(gender='male')
         last_name = names.get_last_name()
+        gamer_tag = self._generate_gamer_tag()
         
         # Generate core stats with role-specific biases
         core_stats = self._generate_core_stats(selected_role, min_rating, max_rating)
@@ -86,17 +123,19 @@ class PlayerGenerator:
         career_stats = self._init_career_stats()
         
         player = {
-            'first_name': first_name,
-            'last_name': last_name,
+            'id': str(uuid.uuid4()),
+            'firstName': first_name,
+            'lastName': last_name,
+            'gamerTag': gamer_tag,
             'age': age,
             'nationality': nationality,
             'region': selected_region,
-            'primary_role': selected_role,
-            'core_stats': core_stats,
-            'role_proficiencies': role_proficiencies,
-            'agent_proficiencies': agent_proficiencies,
+            'primaryRole': selected_role,
+            'coreStats': core_stats,
+            'roleProficiencies': role_proficiencies,
+            'agentProficiencies': agent_proficiencies,
             'salary': salary,
-            'career_stats': career_stats
+            'careerStats': career_stats
         }
 
         # Validate the complete player object
@@ -164,9 +203,9 @@ class PlayerGenerator:
         """Generate core stats with role-specific biases."""
         base_stats = {
             'aim': random.uniform(min_rating, max_rating),
-            'game_sense': random.uniform(min_rating, max_rating),
+            'gameSense': random.uniform(min_rating, max_rating),
             'movement': random.uniform(min_rating, max_rating),
-            'utility_usage': random.uniform(min_rating, max_rating),
+            'utilityUsage': random.uniform(min_rating, max_rating),
             'communication': random.uniform(min_rating, max_rating),
             'clutch': random.uniform(min_rating, max_rating)
         }
@@ -176,13 +215,13 @@ class PlayerGenerator:
             base_stats['aim'] = min(100, base_stats['aim'] * 1.1)
             base_stats['movement'] = min(100, base_stats['movement'] * 1.1)
         elif role == 'Controller':
-            base_stats['utility_usage'] = min(100, base_stats['utility_usage'] * 1.1)
-            base_stats['game_sense'] = min(100, base_stats['game_sense'] * 1.1)
+            base_stats['utilityUsage'] = min(100, base_stats['utilityUsage'] * 1.1)
+            base_stats['gameSense'] = min(100, base_stats['gameSense'] * 1.1)
         elif role == 'Sentinel':
-            base_stats['game_sense'] = min(100, base_stats['game_sense'] * 1.1)
+            base_stats['gameSense'] = min(100, base_stats['gameSense'] * 1.1)
             base_stats['clutch'] = min(100, base_stats['clutch'] * 1.1)
         elif role == 'Initiator':
-            base_stats['utility_usage'] = min(100, base_stats['utility_usage'] * 1.1)
+            base_stats['utilityUsage'] = min(100, base_stats['utilityUsage'] * 1.1)
             base_stats['communication'] = min(100, base_stats['communication'] * 1.1)
         
         # Validate core stats
@@ -248,38 +287,38 @@ class PlayerGenerator:
     def _init_career_stats(self) -> Dict[str, Union[int, float]]:
         """Initialize career statistics."""
         matches_played = random.randint(50, 500)
-        rounds_per_match = random.uniform(16, 24)  # Average rounds per match
-        total_rounds = int(matches_played * rounds_per_match)
         
-        # Calculate kills, deaths, assists based on rounds
-        kills_per_round = random.uniform(0.7, 1.2)  # Average kills per round
-        deaths_per_round = random.uniform(0.6, 1.0)  # Average deaths per round
-        assists_per_round = random.uniform(0.3, 0.7)  # Average assists per round
+        # Calculate kills, deaths, assists
+        kills = int(matches_played * random.uniform(15, 25))
+        deaths = int(matches_played * random.uniform(12, 20))
+        assists = int(matches_played * random.uniform(5, 10))
         
-        kills = int(total_rounds * kills_per_round)
-        deaths = int(total_rounds * deaths_per_round)
-        assists = int(total_rounds * assists_per_round)
+        # Calculate first bloods (ensure rate is between 0 and 1)
+        max_possible_first_bloods = matches_played  # Can't have more first bloods than matches
+        first_bloods = min(
+            int(matches_played * random.uniform(0.1, 0.3)),  # Target 10-30% of matches
+            max_possible_first_bloods
+        )
         
-        # First bloods can't exceed matches played
-        first_blood_rate = random.uniform(0.15, 0.35)  # 15-35% chance of getting first blood
-        first_bloods = int(matches_played * first_blood_rate)
-        
-        # Clutches are based on rounds but should be relatively rare
-        clutch_rate = random.uniform(0.02, 0.08)  # 2-8% of rounds are clutched
-        clutches = int(total_rounds * clutch_rate)
+        # Calculate clutches (ensure rate is between 0 and 1)
+        max_possible_clutches = matches_played  # Can't have more clutches than matches
+        clutches = min(
+            int(matches_played * random.uniform(0.05, 0.15)),  # Target 5-15% of matches
+            max_possible_clutches
+        )
         
         stats = {
-            'matches_played': matches_played,
+            'matchesPlayed': matches_played,
             'kills': kills,
             'deaths': deaths,
             'assists': assists,
-            'first_bloods': first_bloods,
+            'firstBloods': first_bloods,
             'clutches': clutches,
-            'win_rate': random.uniform(0.4, 0.6),
-            'kd_ratio': kills / max(deaths, 1),
-            'kda_ratio': (kills + assists) / max(deaths, 1),
-            'first_blood_rate': first_bloods / matches_played,  # Now guaranteed to be between 0 and 1
-            'clutch_rate': clutches / total_rounds  # Now guaranteed to be between 0 and 1
+            'winRate': random.uniform(0.4, 0.6),
+            'kdRatio': kills / max(deaths, 1),
+            'kdaRatio': (kills + assists) / max(deaths, 1),
+            'firstBloodRate': first_bloods / matches_played,  # Now guaranteed to be between 0 and 1
+            'clutchRate': clutches / matches_played  # Now guaranteed to be between 0 and 1
         }
         
         # Validate career stats
@@ -304,17 +343,17 @@ class PlayerGenerator:
             errors.append(region_error)
         
         # Validate role
-        role_error = self.validation.validate_role(player['primary_role'], self.ROLES)
+        role_error = self.validation.validate_role(player['primaryRole'], self.ROLES)
         if role_error:
             errors.append(role_error)
         
         # Validate core stats
-        core_stat_errors = self.validation.validate_core_stats(player['core_stats'])
+        core_stat_errors = self.validation.validate_core_stats(player['coreStats'])
         errors.extend(core_stat_errors)
         
         # Validate role proficiencies
         role_prof_errors = self.validation.validate_proficiencies(
-            player['role_proficiencies'],
+            player['roleProficiencies'],
             list(self.ROLES.keys())
         )
         errors.extend(role_prof_errors)
@@ -322,13 +361,13 @@ class PlayerGenerator:
         # Validate agent proficiencies
         all_agents = [agent for agents in self.ROLES.values() for agent in agents]
         agent_prof_errors = self.validation.validate_proficiencies(
-            player['agent_proficiencies'],
+            player['agentProficiencies'],
             all_agents
         )
         errors.extend(agent_prof_errors)
         
         # Validate career stats
-        career_stat_errors = self.validation.validate_career_stats(player['career_stats'])
+        career_stat_errors = self.validation.validate_career_stats(player['careerStats'])
         errors.extend(career_stat_errors)
         
         if errors:

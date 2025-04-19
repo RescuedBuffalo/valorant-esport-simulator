@@ -2,8 +2,9 @@
 Match model for simulating and tracking Valorant matches.
 """
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from uuid import uuid4
+from dataclasses import dataclass
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, ForeignKey, Boolean, Enum
 from sqlalchemy.orm import relationship
@@ -24,6 +25,31 @@ class MatchType(enum.Enum):
     TOURNAMENT = "tournament"
     SHOWMATCH = "showmatch"
     SCRIM = "scrim"
+
+@dataclass
+class MatchPerformance:
+    player_id: str
+    kills: int = 0
+    deaths: int = 0
+    assists: int = 0
+    first_bloods: int = 0
+    clutches: int = 0
+    damage_dealt: int = 0
+    utility_damage: int = 0
+    plants: int = 0
+    defuses: int = 0
+
+@dataclass
+class SimMatch:
+    team_a: List[Dict[str, Any]]
+    team_b: List[Dict[str, Any]]
+    map_name: str
+    start_time: datetime = None
+    performances: Dict[str, MatchPerformance] = None
+    
+    def __post_init__(self):
+        self.start_time = datetime.now()
+        self.performances = {}
 
 class Match(Base):
     """Valorant match model."""

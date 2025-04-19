@@ -57,30 +57,30 @@ class PlayerValidation:
     def validate_roster_size(size: int) -> Optional[ValidationError]:
         """Validate roster size."""
         if not isinstance(size, int):
-            return ValidationError("roster_size", "Roster size must be an integer")
+            return ValidationError("rosterSize", "Roster size must be an integer")
         if size < 1:
-            return ValidationError("roster_size", "Roster size must be at least 1")
+            return ValidationError("rosterSize", "Roster size must be at least 1")
         if size > 10:
-            return ValidationError("roster_size", "Roster size cannot exceed 10")
+            return ValidationError("rosterSize", "Roster size cannot exceed 10")
         return None
 
     @staticmethod
     def validate_core_stats(stats: Dict[str, float]) -> List[ValidationError]:
         """Validate core stats."""
         errors = []
-        required_stats = {'aim', 'game_sense', 'movement', 'utility_usage', 'communication', 'clutch'}
+        required_stats = {'aim', 'gameSense', 'movement', 'utilityUsage', 'communication', 'clutch'}
         
         # Check for missing stats
         missing_stats = required_stats - set(stats.keys())
         if missing_stats:
-            errors.append(ValidationError("core_stats", f"Missing required stats: {', '.join(missing_stats)}"))
+            errors.append(ValidationError("coreStats", f"Missing required stats: {', '.join(missing_stats)}"))
         
         # Validate each stat
         for stat, value in stats.items():
             if not isinstance(value, (int, float)):
-                errors.append(ValidationError(f"core_stats.{stat}", f"{stat} must be a number"))
+                errors.append(ValidationError(f"coreStats.{stat}", f"{stat} must be a number"))
             elif value < 0 or value > 100:
-                errors.append(ValidationError(f"core_stats.{stat}", f"{stat} must be between 0 and 100"))
+                errors.append(ValidationError(f"coreStats.{stat}", f"{stat} must be between 0 and 100"))
         
         return errors
 
@@ -108,35 +108,35 @@ class PlayerValidation:
         """Validate career statistics."""
         errors = []
         required_stats = {
-            'matches_played': int,
+            'matchesPlayed': int,
             'kills': int,
             'deaths': int,
             'assists': int,
-            'first_bloods': int,
+            'firstBloods': int,
             'clutches': int,
-            'win_rate': float,
-            'kd_ratio': float,
-            'kda_ratio': float,
-            'first_blood_rate': float,
-            'clutch_rate': float
+            'winRate': float,
+            'kdRatio': float,
+            'kdaRatio': float,
+            'firstBloodRate': float,
+            'clutchRate': float
         }
         
         # Check for missing stats
         missing_stats = set(required_stats.keys()) - set(stats.keys())
         if missing_stats:
-            errors.append(ValidationError("career_stats", f"Missing required stats: {', '.join(missing_stats)}"))
+            errors.append(ValidationError("careerStats", f"Missing required stats: {', '.join(missing_stats)}"))
         
         # Validate each stat
         for stat, value in stats.items():
             if stat in required_stats:
                 expected_type = required_stats[stat]
                 if not isinstance(value, (int, float)):
-                    errors.append(ValidationError(f"career_stats.{stat}", f"{stat} must be a number"))
+                    errors.append(ValidationError(f"careerStats.{stat}", f"{stat} must be a number"))
                 elif expected_type == int and not float(value).is_integer():
-                    errors.append(ValidationError(f"career_stats.{stat}", f"{stat} must be an integer"))
+                    errors.append(ValidationError(f"careerStats.{stat}", f"{stat} must be an integer"))
                 elif value < 0:
-                    errors.append(ValidationError(f"career_stats.{stat}", f"{stat} cannot be negative"))
-                elif stat.endswith('_rate') and value > 1:
-                    errors.append(ValidationError(f"career_stats.{stat}", f"{stat} must be between 0 and 1"))
+                    errors.append(ValidationError(f"careerStats.{stat}", f"{stat} cannot be negative"))
+                elif stat.endswith('Rate') and value > 1:
+                    errors.append(ValidationError(f"careerStats.{stat}", f"{stat} must be between 0 and 1"))
         
         return errors 

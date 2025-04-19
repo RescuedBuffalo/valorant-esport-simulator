@@ -2,14 +2,15 @@
 Match simulation engine for Valorant matches.
 """
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple, Any
 import random
 import math
 
-from app.models.match import Match, MatchPerformance
+from app.models.match import SimMatch, MatchPerformance
 from app.models.player import Player
 from app.models.team import Team
+from .weapons import WeaponFactory, BuyPreferences, WeaponType
 
 @dataclass
 class RoundState:
@@ -17,500 +18,382 @@ class RoundState:
     round_number: int
     team_a_credits: int
     team_b_credits: int
-    team_a_players_alive: List[Player]
-    team_b_players_alive: List[Player]
+    team_a_players_alive: List[Dict]
+    team_b_players_alive: List[Dict]
     time_remaining: int  # seconds
     spike_planted: bool
     plant_site: Optional[str]
     ultimates_available_a: Dict[str, bool]  # player_id: has_ultimate
     ultimates_available_b: Dict[str, bool]
+    team_a_weapons: Dict[str, str]  # player_id: weapon_name
+    team_b_weapons: Dict[str, str]
+    team_a_armor: Dict[str, bool]  # player_id: has_armor
+    team_b_armor: Dict[str, bool]
 
-class MatchSimulator:
-    """Simulates Valorant matches with detailed round-by-round simulation."""
-    
-    # Constants
-    ROUND_TIME = 100  # seconds
-    SPIKE_PLANT_TIME = 4
-    SPIKE_DEFUSE_TIME = 7
-    POST_PLANT_TIME = 45
-    
-    # Economy
-    STARTING_CREDITS = 800
-    LOSS_BONUS_BASE = 1900
-    LOSS_BONUS_INCREMENT = 500
-    MAX_LOSS_BONUS = 2900
-    KILL_REWARD = 200
-    ROUND_WIN_REWARD = 3000
-    PLANT_REWARD = 300
-    
-    # Map-specific attack/defense advantages
-    MAP_SIDE_ADVANTAGE = {
-        'Ascent': {'attack': 0.48, 'defense': 0.52},
-        'Bind': {'attack': 0.49, 'defense': 0.51},
-        'Haven': {'attack': 0.51, 'defense': 0.49},
-        'Split': {'attack': 0.47, 'defense': 0.53},
-        'Icebox': {'attack': 0.50, 'defense': 0.50},
-        'Breeze': {'attack': 0.51, 'defense': 0.49},
-        'Fracture': {'attack': 0.52, 'defense': 0.48},
-        'Pearl': {'attack': 0.49, 'defense': 0.51},
-        'Lotus': {'attack': 0.50, 'defense': 0.50},
-        'Sunset': {'attack': 0.50, 'defense': 0.50},
-    }
-    
-    def __init__(self, match: Match):
-        self.match = match
-        self.team_a = match.team_a
-        self.team_b = match.team_b
-        self.map_name = match.map_name
-        self.performances: Dict[str, MatchPerformance] = {}
+class MatchEngine:
+    def __init__(self):
+        self.current_match: Optional[SimMatch] = None
+        self.round_number = 0
+        self.score = {"team_a": 0, "team_b": 0}
+        self.economy = {"team_a": 4000, "team_b": 4000}
+        self.weapon_factory = WeaponFactory()
+        self.weapons = self.weapon_factory.create_weapon_catalog()
         
-        # Initialize performance tracking for all players
-        for player in self.team_a.active_roster + self.team_b.active_roster:
-            self.performances[player.id] = MatchPerformance(
-                match_id=match.id,
-                player_id=player.id,
-                team_id=player.team_id
-            )
+    def _determine_round_type(self, team_economy: int, team_loss_streak: int) -> str:
+        """Determine if the team should eco, force buy, or full buy."""
+        if team_economy >= 4000:
+            return 'full_buy'
+        elif team_loss_streak >= 2 or team_economy >= 2000:
+            return 'force_buy'
+        return 'eco'
     
-    def simulate_match(self) -> Match:
-        """Simulate entire match."""
-        self.match.status = "in_progress"
-        self.match.start_time = datetime.utcnow()
+    def _buy_phase(self, team: List[Dict], team_economy: int, team_loss_streak: int, team_id: str) -> Tuple[Dict[str, str], Dict[str, bool]]:
+        """
+        Simulate the buy phase for a team.
         
-        # Initialize economy
-        team_a_credits = {p.id: self.STARTING_CREDITS for p in self.team_a.active_roster}
-        team_b_credits = {p.id: self.STARTING_CREDITS for p in self.team_b.active_roster}
-        team_a_loss_bonus = 0
-        team_b_loss_bonus = 0
+        Args:
+            team: List of player dictionaries
+            team_economy: Total team economy
+            team_loss_streak: Current loss streak
+            team_id: 'team_a' or 'team_b'
+            
+        Returns:
+            Tuple of (weapons dict, armor dict)
+        """
+        weapons = {}
+        armor = {}
+        round_type = self._determine_round_type(team_economy, team_loss_streak)
         
-        # Simulate rounds until a winner is determined
-        while not self._is_match_complete():
-            round_result = self.simulate_round(
-                self.match.current_round + 1,
-                team_a_credits,
-                team_b_credits
+        for player in team:
+            buy_prefs = BuyPreferences(player)
+            weapon_choice = buy_prefs.decide_buy(
+                available_credits=self.economy[team_id],
+                team_economy=team_economy,
+                round_type=round_type
             )
             
-            # Update match state
-            self.match.rounds.append(round_result)
-            self.match.current_round += 1
+            # Apply the weapon cost
+            weapon_cost = self.weapons[weapon_choice].cost
+            self.economy[team_id] -= weapon_cost
+            weapons[player['id']] = weapon_choice
             
-            # Update scores
-            if round_result['winner'] == 'team_a':
-                self.match.team_a_score += 1
-                team_b_loss_bonus = min(4, team_b_loss_bonus + 1)
-                team_a_loss_bonus = 0
+            # Buy armor if can afford (1000 credits)
+            can_buy_armor = self.economy[team_id] >= 1000
+            if can_buy_armor and round_type != 'eco':
+                self.economy[team_id] -= 1000
+                armor[player['id']] = True
             else:
-                self.match.team_b_score += 1
-                team_a_loss_bonus = min(4, team_a_loss_bonus + 1)
-                team_b_loss_bonus = 0
-            
-            # Update economy for next round
-            self._update_economy(
-                round_result,
-                team_a_credits,
-                team_b_credits,
-                team_a_loss_bonus,
-                team_b_loss_bonus
-            )
+                armor[player['id']] = False
         
-        # Finalize match
-        self._finalize_match()
-        return self.match
+        return weapons, armor
     
-    def simulate_round(
+    def _simulate_duel(
         self,
-        round_number: int,
-        team_a_credits: Dict[str, int],
-        team_b_credits: Dict[str, int]
-    ) -> Dict:
-        """Simulate a single round."""
+        attacker: Dict[str, Any],
+        defender: Dict[str, Any],
+        attacker_weapon: str,
+        defender_weapon: str,
+        distance: str,  # 'close', 'medium', 'long'
+        attacker_armor: bool,
+        defender_armor: bool
+    ) -> bool:
+        """
+        Simulates a 1v1 duel between two players with their weapons.
+        
+        Returns:
+            True if attacker wins, False if defender wins
+        """
+        att_weapon = self.weapons[attacker_weapon]
+        def_weapon = self.weapons[defender_weapon]
+        
+        # Base ratings modified by weapon stats
+        attacker_rating = (
+            attacker["coreStats"]["aim"] * 0.4 * att_weapon.accuracy +
+            attacker["coreStats"]["movement"] * 0.3 * att_weapon.movement_accuracy +
+            attacker["coreStats"]["gameSense"] * 0.3
+        )
+        
+        defender_rating = (
+            defender["coreStats"]["aim"] * 0.4 * def_weapon.accuracy +
+            defender["coreStats"]["movement"] * 0.3 * def_weapon.movement_accuracy +
+            defender["coreStats"]["gameSense"] * 0.3
+        )
+        
+        # Apply weapon-specific modifiers
+        attacker_rating *= att_weapon.range_multipliers[distance]
+        defender_rating *= def_weapon.range_multipliers[distance]
+        
+        # Special cases for weapon types
+        if att_weapon.type == WeaponType.SNIPER and distance == "long":
+            attacker_rating *= 1.5  # Increased from 1.2 to make snipers more dominant at range
+        if def_weapon.type == WeaponType.SMG and distance == "close":
+            defender_rating *= 1.2  # Increased from 1.1 to make SMGs more effective close range
+            
+        # Armor reduces damage
+        if defender_armor:
+            attacker_rating *= (1 - (1 - att_weapon.armor_penetration) * 0.5)
+        if attacker_armor:
+            defender_rating *= (1 - (1 - def_weapon.armor_penetration) * 0.5)
+            
+        # Add some randomness
+        attacker_roll = attacker_rating * random.uniform(0.8, 1.2)
+        defender_roll = defender_rating * random.uniform(0.8, 1.2)
+        
+        return attacker_roll > defender_roll
+    
+    def _simulate_round(self) -> Dict[str, Any]:
+        """Simulates a single round of play."""
+        # Buy phase
+        team_a_weapons, team_a_armor = self._buy_phase(
+            self.current_match.team_a,
+            self.economy["team_a"],
+            self.loss_streaks.get("team_a", 0),
+            "team_a"
+        )
+        team_b_weapons, team_b_armor = self._buy_phase(
+            self.current_match.team_b,
+            self.economy["team_b"],
+            self.loss_streaks.get("team_b", 0),
+            "team_b"
+        )
+        
         # Initialize round state
-        state = RoundState(
-            round_number=round_number,
-            team_a_credits=sum(team_a_credits.values()),
-            team_b_credits=sum(team_b_credits.values()),
-            team_a_players_alive=list(self.team_a.active_roster),
-            team_b_players_alive=list(self.team_b.active_roster),
-            time_remaining=self.ROUND_TIME,
-            spike_planted=False,
-            plant_site=None,
-            ultimates_available_a={p.id: random.random() < 0.2 for p in self.team_a.active_roster},
-            ultimates_available_b={p.id: random.random() < 0.2 for p in self.team_b.active_roster}
-        )
+        alive_players = {
+            "team_a": self.current_match.team_a.copy(),
+            "team_b": self.current_match.team_b.copy()
+        }
+        spike_planted = False
+        plant_time = None
+        clutch_player = None
         
-        events = []
-        
-        # Pre-round calculations
-        attacking_team = 'team_a' if self._is_team_a_attacking(round_number) else 'team_b'
-        map_advantage = self.MAP_SIDE_ADVANTAGE[self.map_name]
-        
-        # Simulate round events
-        while not self._is_round_over(state):
-            event = self._simulate_next_event(state, attacking_team, map_advantage)
-            if event:
-                events.append(event)
-                self._apply_event(state, event)
-        
-        # Determine round winner and create round result
-        winner = self._determine_round_winner(state)
-        round_result = {
-            'round_number': round_number,
-            'winner': winner,
-            'events': events,
-            'time_remaining': state.time_remaining,
-            'spike_planted': state.spike_planted,
-            'plant_site': state.plant_site
+        # Track weapons and armor
+        round_weapons = {
+            "team_a": team_a_weapons,
+            "team_b": team_b_weapons
+        }
+        round_armor = {
+            "team_a": team_a_armor,
+            "team_b": team_b_armor
         }
         
-        # Update player performances
-        self._update_performances(round_result)
-        
-        return round_result
-    
-    def _is_team_a_attacking(self, round_number: int) -> bool:
-        """Determine if team A is attacking based on round number."""
-        first_half = round_number <= 12
-        team_a_started_attack = self.match.team_a_side_first == "attack"
-        
-        if self.match.overtime_rounds > 0:
-            return (round_number % 2) == (1 if team_a_started_attack else 0)
-        
-        return (first_half and team_a_started_attack) or (not first_half and not team_a_started_attack)
-    
-    def _simulate_next_event(
-        self,
-        state: RoundState,
-        attacking_team: str,
-        map_advantage: Dict[str, float]
-    ) -> Optional[Dict]:
-        """Simulate the next event in the round."""
-        # List of possible events and their base probabilities
-        events = [
-            ('combat', 0.6),
-            ('utility', 0.2),
-            ('spike_plant', 0.1 if not state.spike_planted else 0),
-            ('spike_defuse', 0.1 if state.spike_planted else 0)
-        ]
-        
-        event_type = random.choices(
-            [e[0] for e in events],
-            weights=[e[1] for e in events]
-        )[0]
-        
-        if event_type == 'combat':
-            return self._simulate_combat(state, attacking_team, map_advantage)
-        elif event_type == 'utility':
-            return self._simulate_utility_usage(state)
-        elif event_type == 'spike_plant':
-            return self._simulate_spike_plant(state, attacking_team)
-        elif event_type == 'spike_defuse':
-            return self._simulate_spike_defuse(state, attacking_team)
-        
-        return None
-    
-    def _simulate_combat(
-        self,
-        state: RoundState,
-        attacking_team: str,
-        map_advantage: Dict[str, float]
-    ) -> Optional[Dict]:
-        """Simulate a combat encounter between players."""
-        if not state.team_a_players_alive or not state.team_b_players_alive:
-            return None
-            
-        # Select random players for the duel
-        attacker = random.choice(
-            state.team_a_players_alive if attacking_team == 'team_a'
-            else state.team_b_players_alive
-        )
-        defender = random.choice(
-            state.team_b_players_alive if attacking_team == 'team_a'
-            else state.team_a_players_alive
-        )
-        
-        # Calculate duel win probability
-        attacker_rating = self._calculate_combat_rating(attacker, True, state)
-        defender_rating = self._calculate_combat_rating(defender, False, state)
-        
-        # Apply map advantage
-        side_multiplier = (
-            map_advantage['attack'] if attacking_team == 'team_a'
-            else map_advantage['defense']
-        )
-        
-        win_probability = (attacker_rating / (attacker_rating + defender_rating)) * side_multiplier
-        
-        # Determine outcome
-        attacker_wins = random.random() < win_probability
-        
-        return {
-            'type': 'combat',
-            'attacker_id': attacker.id,
-            'defender_id': defender.id,
-            'winner_id': attacker.id if attacker_wins else defender.id,
-            'loser_id': defender.id if attacker_wins else attacker.id,
-            'time': state.time_remaining
-        }
-    
-    def _calculate_combat_rating(self, player: Player, is_attacker: bool, state: RoundState) -> float:
-        """Calculate a player's combat effectiveness rating."""
-        # Base combat rating from player stats
-        base_rating = (
-            player.aim * 0.4 +
-            player.game_sense * 0.3 +
-            player.clutch * 0.2 +
-            player.utility_usage * 0.1
-        )
-        
-        # Apply form and fatigue modifiers
-        rating = base_rating * (1 + (player.form - 70) * 0.01) * (1 - player.fatigue * 0.005)
-        
-        # Role and position modifiers
-        if is_attacker:
-            if player.role_proficiency.get('Duelist', 0) > 70:
-                rating *= 1.1
-        else:
-            if player.role_proficiency.get('Sentinel', 0) > 70:
-                rating *= 1.1
-        
-        # Ultimate availability bonus
-        team = 'team_a' if player in state.team_a_players_alive else 'team_b'
-        if (team == 'team_a' and state.ultimates_available_a.get(player.id)) or \
-           (team == 'team_b' and state.ultimates_available_b.get(player.id)):
-            rating *= 1.2
-        
-        return rating
-    
-    def _simulate_utility_usage(self, state: RoundState) -> Optional[Dict]:
-        """Simulate utility usage and its effects."""
-        # Select random player to use utility
-        all_alive = state.team_a_players_alive + state.team_b_players_alive
-        if not all_alive:
-            return None
-            
-        player = random.choice(all_alive)
-        utility_rating = player.utility_usage
-        
-        # Determine utility effectiveness
-        effectiveness = random.random() * utility_rating / 100
-        damage = int(effectiveness * 50)  # Max 50 damage from utility
-        
-        return {
-            'type': 'utility',
-            'player_id': player.id,
-            'damage_dealt': damage,
-            'time': state.time_remaining
-        }
-    
-    def _simulate_spike_plant(self, state: RoundState, attacking_team: str) -> Optional[Dict]:
-        """Simulate a spike plant attempt."""
-        if state.spike_planted or state.time_remaining < self.SPIKE_PLANT_TIME:
-            return None
-            
-        attackers = (
-            state.team_a_players_alive if attacking_team == 'team_a'
-            else state.team_b_players_alive
-        )
-        
-        if not attackers:
-            return None
-            
-        planter = random.choice(attackers)
-        sites = ['A', 'B', 'C'] if self.map_name == 'Haven' else ['A', 'B']
-        
-        return {
-            'type': 'plant',
-            'player_id': planter.id,
-            'site': random.choice(sites),
-            'time': state.time_remaining
-        }
-    
-    def _simulate_spike_defuse(self, state: RoundState, attacking_team: str) -> Optional[Dict]:
-        """Simulate a spike defuse attempt."""
-        if not state.spike_planted or state.time_remaining < self.SPIKE_DEFUSE_TIME:
-            return None
-            
-        defenders = (
-            state.team_b_players_alive if attacking_team == 'team_a'
-            else state.team_a_players_alive
-        )
-        
-        if not defenders:
-            return None
-            
-        defuser = random.choice(defenders)
-        
-        return {
-            'type': 'defuse',
-            'player_id': defuser.id,
-            'time': state.time_remaining
-        }
-    
-    def _apply_event(self, state: RoundState, event: Dict):
-        """Apply event effects to the round state."""
-        if event['type'] == 'combat':
-            # Remove loser from alive players
-            if event['loser_id'] in [p.id for p in state.team_a_players_alive]:
-                state.team_a_players_alive = [
-                    p for p in state.team_a_players_alive
-                    if p.id != event['loser_id']
-                ]
-            else:
-                state.team_b_players_alive = [
-                    p for p in state.team_b_players_alive
-                    if p.id != event['loser_id']
-                ]
-        elif event['type'] == 'plant':
-            state.spike_planted = True
-            state.plant_site = event['site']
-            state.time_remaining = min(state.time_remaining, self.POST_PLANT_TIME)
-        elif event['type'] == 'defuse':
-            state.spike_planted = False
-        
-        # Update time
-        time_taken = random.randint(5, 15)
-        state.time_remaining = max(0, state.time_remaining - time_taken)
-    
-    def _is_round_over(self, state: RoundState) -> bool:
-        """Check if the round is over."""
-        # Time ran out
-        if state.time_remaining <= 0:
-            return True
-        
-        # All players on one team eliminated
-        if not state.team_a_players_alive or not state.team_b_players_alive:
-            return True
-        
-        # Spike detonated
-        if state.spike_planted and state.time_remaining <= 0:
-            return True
-        
-        return False
-    
-    def _determine_round_winner(self, state: RoundState) -> str:
-        """Determine which team won the round."""
-        attacking_team = 'team_a' if self._is_team_a_attacking(state.round_number) else 'team_b'
-        
-        # Spike detonated
-        if state.spike_planted and state.time_remaining <= 0:
-            return attacking_team
-        
-        # Time ran out without plant
-        if state.time_remaining <= 0 and not state.spike_planted:
-            return 'team_b' if attacking_team == 'team_a' else 'team_a'
-        
-        # Team elimination
-        if not state.team_a_players_alive:
-            return 'team_b'
-        if not state.team_b_players_alive:
-            return 'team_a'
-        
-        # Shouldn't reach here
-        return 'team_a'
-    
-    def _update_economy(
-        self,
-        round_result: Dict,
-        team_a_credits: Dict[str, int],
-        team_b_credits: Dict[str, int],
-        team_a_loss_bonus: int,
-        team_b_loss_bonus: int
-    ):
-        """Update team economies after a round."""
-        # Award round win bonus
-        winning_team = round_result['winner']
-        if winning_team == 'team_a':
-            for player_id in team_a_credits:
-                team_a_credits[player_id] = min(9000, team_a_credits[player_id] + self.ROUND_WIN_REWARD)
-            for player_id in team_b_credits:
-                loss_bonus = self.LOSS_BONUS_BASE + (team_b_loss_bonus * self.LOSS_BONUS_INCREMENT)
-                team_b_credits[player_id] = min(9000, team_b_credits[player_id] + loss_bonus)
-        else:
-            for player_id in team_b_credits:
-                team_b_credits[player_id] = min(9000, team_b_credits[player_id] + self.ROUND_WIN_REWARD)
-            for player_id in team_a_credits:
-                loss_bonus = self.LOSS_BONUS_BASE + (team_a_loss_bonus * self.LOSS_BONUS_INCREMENT)
-                team_a_credits[player_id] = min(9000, team_a_credits[player_id] + loss_bonus)
-        
-        # Award kill bonuses
-        for event in round_result['events']:
-            if event['type'] == 'combat':
-                winner_credits = team_a_credits if event['winner_id'] in team_a_credits else team_b_credits
-                winner_credits[event['winner_id']] = min(9000, winner_credits[event['winner_id']] + self.KILL_REWARD)
-    
-    def _update_performances(self, round_result: Dict):
-        """Update player performance statistics based on round events."""
-        for event in round_result['events']:
-            if event['type'] == 'combat':
-                # Update winner stats
-                winner_perf = self.performances[event['winner_id']]
-                winner_perf.kills += 1
-                winner_perf.damage_dealt += random.randint(150, 200)
-                if event == round_result['events'][0]:  # First blood
-                    winner_perf.first_bloods += 1
+        # Simulate pre-plant phase
+        while len(alive_players["team_a"]) > 0 and len(alive_players["team_b"]) > 0 and not spike_planted:
+            # Simulate engagements
+            if random.random() < 0.7:  # 70% chance of engagement
+                attacking_team = "team_a" if self.round_number % 2 == 0 else "team_b"
+                defending_team = "team_b" if attacking_team == "team_a" else "team_a"
                 
-                # Update loser stats
-                loser_perf = self.performances[event['loser_id']]
-                loser_perf.deaths += 1
-                if event == round_result['events'][0]:  # First death
-                    loser_perf.first_deaths += 1
+                attacker = random.choice(alive_players[attacking_team])
+                defender = random.choice(alive_players[defending_team])
+                
+                # Determine engagement distance
+                distance = random.choice(["close", "medium", "long"])
+                
+                # Get weapons and armor
+                att_weapon = round_weapons[attacking_team][attacker["id"]]
+                def_weapon = round_weapons[defending_team][defender["id"]]
+                att_armor = round_armor[attacking_team][attacker["id"]]
+                def_armor = round_armor[defending_team][defender["id"]]
+                
+                if self._simulate_duel(
+                    attacker,
+                    defender,
+                    att_weapon,
+                    def_weapon,
+                    distance,
+                    att_armor,
+                    def_armor
+                ):
+                    alive_players[defending_team].remove(defender)
+                else:
+                    alive_players[attacking_team].remove(attacker)
+                    
+                # Check for clutch situation
+                if len(alive_players[attacking_team]) == 1 and len(alive_players[defending_team]) >= 2:
+                    clutch_player = list(alive_players[attacking_team])[0]["id"]
             
-            elif event['type'] == 'utility':
-                perf = self.performances[event['player_id']]
-                perf.utility_damage += event['damage_dealt']
-                perf.utility_casts += 1
+            # Chance to plant spike
+            if self.round_number % 2 == 0 and len(alive_players["team_a"]) > 0:
+                if random.random() < 0.3:  # 30% chance to plant
+                    spike_planted = True
+                    plant_time = datetime.now()
+        
+        # Determine round winner
+        winner = self._determine_round_winner(alive_players, spike_planted)
+        
+        return {
+            "winner": winner,
+            "economy": self.economy.copy(),
+            "spike_planted": spike_planted,
+            "clutch_player": clutch_player,
+            "survivors": {
+                "team_a": len(alive_players["team_a"]),
+                "team_b": len(alive_players["team_b"])
+            },
+            "weapons": round_weapons,
+            "armor": round_armor
+        }
+    
+    def _determine_round_winner(self, alive_players: Dict[str, List[Dict[str, Any]]], spike_planted: bool) -> str:
+        """
+        Determines the winner of a round based on current state.
+        
+        Args:
+            alive_players: Dictionary containing lists of alive players for each team
+            spike_planted: Whether the spike is planted
+            
+        Returns:
+            "team_a" or "team_b"
+        """
+        if self.round_number % 2 == 0:  # Team A attacking
+            if len(alive_players["team_b"]) == 0:
+                return "team_a"  # All defenders eliminated
+            elif len(alive_players["team_a"]) == 0:
+                return "team_b"  # All attackers eliminated
+            elif spike_planted:
+                return "team_a"  # Spike detonated
+            else:
+                return "team_b"  # Time ran out
+        else:  # Team B attacking
+            if len(alive_players["team_a"]) == 0:
+                return "team_b"
+            elif len(alive_players["team_b"]) == 0:
+                return "team_a"
+            elif spike_planted:
+                return "team_b"
+            else:
+                return "team_a"
+    
+    def _update_economy(self, round_result: Dict[str, Any]):
+        """
+        Updates team economies based on round result.
+        
+        Args:
+            round_result: Dictionary containing round results
+        """
+        # Valorant economy constants
+        MAX_MONEY = 9000  # Maximum credits per round
+        MIN_MONEY = 1000  # Minimum credits after round loss (changed from 0)
+        
+        # Round win rewards
+        WIN_REWARD = 3000
+        LOSS_STREAK_BONUS = [1900, 2400, 2900, 3400, 3900]  # Increasing bonus for consecutive losses
+        PLANT_BONUS = 300
+        
+        # Track loss streaks if not already initialized
+        if not hasattr(self, 'loss_streaks'):
+            self.loss_streaks = {'team_a': 0, 'team_b': 0}
+        
+        winning_team = round_result['winner']
+        losing_team = 'team_b' if winning_team == 'team_a' else 'team_a'
+        
+        # Update winning team
+        self.economy[winning_team] = min(
+            MAX_MONEY,
+            self.economy[winning_team] + WIN_REWARD
+        )
+        # Reset their loss streak
+        self.loss_streaks[winning_team] = 0
+        
+        # Update losing team
+        # Get appropriate loss bonus based on streak (max 4 = index 4 in bonus array)
+        loss_streak = min(self.loss_streaks[losing_team], 4)
+        loss_bonus = LOSS_STREAK_BONUS[loss_streak]
+        
+        # Ensure losing team has at least MIN_MONEY credits after the round
+        self.economy[losing_team] = max(
+            MIN_MONEY,
+            min(MAX_MONEY, self.economy[losing_team] + loss_bonus)
+        )
+        # Increment their loss streak
+        self.loss_streaks[losing_team] += 1
+        
+        # Add plant bonus if applicable
+        if round_result.get('spike_planted'):
+            planting_team = 'team_a' if self.round_number % 2 == 0 else 'team_b'
+            self.economy[planting_team] = min(
+                MAX_MONEY,
+                self.economy[planting_team] + PLANT_BONUS
+            )
     
     def _is_match_complete(self) -> bool:
-        """Check if the match is complete."""
-        # Regular time
-        if self.match.current_round < 24:
-            if self.match.team_a_score == 13 or self.match.team_b_score == 13:
-                return True
-            return False
+        """
+        Checks if the match is complete.
         
-        # Overtime
-        score_diff = abs(self.match.team_a_score - self.match.team_b_score)
-        if score_diff >= 2:
-            return True
-        
-        return False
-    
-    def _finalize_match(self):
-        """Finalize match statistics and update player/team stats."""
-        self.match.status = "completed"
-        self.match.end_time = datetime.utcnow()
-        
-        # Calculate final performance ratings
-        for perf in self.performances.values():
-            perf.calculate_rating()
-        
-        # Determine MVP
-        mvp_performance = max(
-            self.performances.values(),
-            key=lambda p: p.impact_score
+        Returns:
+            True if a team has won, False otherwise
+        """
+        return (
+            self.score["team_a"] >= 13 or
+            self.score["team_b"] >= 13
         )
-        self.match.mvp_player_id = mvp_performance.player_id
+    
+    def _calculate_mvp(self) -> Optional[str]:
+        """
+        Calculates the MVP of the match.
         
-        # Update team stats
-        winner = self.team_a if self.match.team_a_score > self.match.team_b_score else self.team_b
-        loser = self.team_b if winner == self.team_a else self.team_a
-        
-        winner.match_wins += 1
-        loser.match_losses += 1
-        
-        # Update player stats
-        for player in self.team_a.active_roster + self.team_b.active_roster:
-            perf = self.performances[player.id]
-            player.matches_played += 1
-            player.kills += perf.kills
-            player.deaths += perf.deaths
-            player.assists += perf.assists
-            player.first_bloods += perf.first_bloods
-            player.clutches_won += perf.clutches_won
+        Returns:
+            Player ID of the MVP
+        """
+        if not self.current_match:
+            return None
             
-            # Update form based on performance
-            player.update_form(perf.rating)
+        best_performance = None
+        mvp_id = None
+        
+        for player in self.current_match.team_a + self.current_match.team_b:
+            performance = player["careerStats"]["kdRatio"] * 0.4 + \
+                         player["careerStats"]["clutchRate"] * 0.3 + \
+                         player["careerStats"]["firstBloodRate"] * 0.3
+                         
+            if not best_performance or performance > best_performance:
+                best_performance = performance
+                mvp_id = player["id"]
+                
+        return mvp_id
+
+    def simulate_match(self, team_a: List[Dict[str, Any]], team_b: List[Dict[str, Any]], map_name: str) -> Dict[str, Any]:
+        """
+        Simulates a complete match between two teams.
+        
+        Args:
+            team_a: List of player dictionaries for team A
+            team_b: List of player dictionaries for team B
+            map_name: Name of the map being played
             
-            # Add fatigue
-            player.fatigue = min(100, player.fatigue + random.randint(5, 15)) 
+        Returns:
+            Dictionary containing match results
+        """
+        self.current_match = SimMatch(team_a, team_b, map_name)
+        self.round_number = 0
+        self.score = {"team_a": 0, "team_b": 0}
+        self.economy = {"team_a": 4000, "team_b": 4000}
+        self.loss_streaks = {"team_a": 0, "team_b": 0}
+        
+        rounds = []
+        start_time = datetime.now()
+        
+        while not self._is_match_complete():
+            round_result = self._simulate_round()
+            rounds.append(round_result)
+            
+            # Update score
+            if round_result["winner"] == "team_a":
+                self.score["team_a"] += 1
+            else:
+                self.score["team_b"] += 1
+                
+            # Update economy
+            self._update_economy(round_result)
+            
+            self.round_number += 1
+        
+        duration = (datetime.now() - start_time).total_seconds() / 60
+        
+        return {
+            "score": self.score,
+            "rounds": rounds,
+            "duration": round(duration, 2),
+            "map": map_name,
+            "mvp": self._calculate_mvp()
+        } 
