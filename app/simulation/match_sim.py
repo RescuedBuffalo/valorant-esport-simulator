@@ -6,6 +6,7 @@ Simulates matches between teams using the Player and Team dataclasses.
 import random
 import math
 import time
+import logging
 from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
 
@@ -34,6 +35,7 @@ class MatchSimulator:
         self.team_b_score = 0
         self.current_round = 0
         self.economy = {"team_a": 4000, "team_b": 4000}
+        self.player_credits = {}  # Track individual player credits
         self.loss_streaks = {"team_a": 0, "team_b": 0}
         self.rounds = []
         self.player_performances = {
@@ -63,16 +65,30 @@ class MatchSimulator:
         self.reset_match_state()
         start_time = datetime.now()
         
-        # Initialize player performances
+        # Initialize player performances and credits
         self.player_performances = {
             "team_a": [self._init_player_performance(p) for p in team_a_players],
             "team_b": [self._init_player_performance(p) for p in team_b_players]
         }
         
+        # Initialize player credits - 800 for pistol round
+        for player in team_a_players + team_b_players:
+            self.player_credits[player.id] = 800
+        
         # Simulate rounds until match is complete
         while not self._is_match_complete():
+            # Check if this is a pistol round (first round of each half)
+            is_pistol_round = self.current_round == 0 or self.current_round == 12
+            
+            # If pistol round, reset player credits to 800
+            if is_pistol_round:
+                for player in team_a_players + team_b_players:
+                    self.player_credits[player.id] = 800
+                # Also reset team economy for clarity
+                self.economy = {"team_a": 4000, "team_b": 4000}
+            
             round_result = self._simulate_round(
-                team_a, team_b, team_a_players, team_b_players
+                team_a, team_b, team_a_players, team_b_players, is_pistol_round
             )
             self.rounds.append(round_result)
             
@@ -85,7 +101,9 @@ class MatchSimulator:
             # Update economy for next round
             self._update_economy(
                 round_result["winner"], 
-                round_result.get("spike_planted", False)
+                round_result.get("spike_planted", False),
+                team_a_players,
+                team_b_players
             )
             
             # Update player performances
@@ -120,7 +138,8 @@ class MatchSimulator:
         team_a: Team, 
         team_b: Team, 
         team_a_players: List[Player], 
-        team_b_players: List[Player]
+        team_b_players: List[Player],
+        is_pistol_round: bool = False
     ) -> Dict[str, Any]:
         """
         Simulate a single round of play.
@@ -130,6 +149,7 @@ class MatchSimulator:
             team_b: Team B data
             team_a_players: List of players on team A
             team_b_players: List of players on team B
+            is_pistol_round: Whether this is a pistol round
             
         Returns:
             Round result data
@@ -144,9 +164,24 @@ class MatchSimulator:
         att_players = team_a_players if attacking_team == "team_a" else team_b_players
         def_players = team_b_players if attacking_team == "team_a" else team_a_players
         
-        # Calculate team advantages
+        # Simulate buy phase for each player
+        player_loadouts = self._simulate_buy_phase(
+            att_players, 
+            def_players, 
+            attacking_team, 
+            defending_team,
+            is_pistol_round
+        )
+        
+        # Calculate team advantages (consider weapons from buy phase)
         att_advantage = self._calculate_team_advantage(att_team, att_players, "attack")
         def_advantage = self._calculate_team_advantage(def_team, def_players, "defense")
+        
+        # Add weapon advantage based on loadouts
+        att_weapon_advantage = self._calculate_weapon_advantage(player_loadouts[attacking_team])
+        def_weapon_advantage = self._calculate_weapon_advantage(player_loadouts[defending_team])
+        att_advantage += att_weapon_advantage
+        def_advantage += def_weapon_advantage
         
         # Economy advantage
         att_eco = self.economy[attacking_team]
@@ -177,7 +212,8 @@ class MatchSimulator:
             attacking_team,
             defending_team,
             winner,
-            spike_planted
+            spike_planted,
+            player_loadouts
         )
         
         # Generate round summary
@@ -200,38 +236,237 @@ class MatchSimulator:
                 "team_a": self.economy["team_a"],
                 "team_b": self.economy["team_b"]
             },
+            "player_credits": self.player_credits.copy(),
+            "player_loadouts": player_loadouts,
+            "is_pistol_round": is_pistol_round,
             "summary": summary
         }
     
-    def _update_economy(self, winner: str, spike_planted: bool):
+    def _simulate_buy_phase(
+        self,
+        att_players: List[Player],
+        def_players: List[Player],
+        att_team: str,
+        def_team: str,
+        is_pistol_round: bool
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Simulate players buying weapons and equipment.
+        
+        Args:
+            att_players: List of attacking players
+            def_players: List of defending players
+            att_team: Team identifier for attackers
+            def_team: Team identifier for defenders
+            is_pistol_round: Whether this is a pistol round
+            
+        Returns:
+            Dictionary of player loadouts
+        """
+        from .weapons import BuyPreferences
+        
+        loadouts = {
+            att_team: {},
+            def_team: {}
+        }
+        
+        # Define round type based on economy and if it's a pistol round
+        att_round_type = 'pistol' if is_pistol_round else self._determine_round_type(self.economy[att_team], self.loss_streaks[att_team])
+        def_round_type = 'pistol' if is_pistol_round else self._determine_round_type(self.economy[def_team], self.loss_streaks[def_team])
+        
+        # Simulate buys for attacking team
+        for player in att_players:
+            buy_prefs = BuyPreferences(player.__dict__)
+            credits = self.player_credits.get(player.id, 800 if is_pistol_round else 4000)
+            
+            # Determine buy
+            weapon = buy_prefs.decide_buy(
+                available_credits=credits,
+                team_economy=self.economy[att_team],
+                round_type=att_round_type
+            )
+            
+            # Calculate cost of weapon
+            from .weapons import WeaponFactory
+            weapons = WeaponFactory.create_weapon_catalog()
+            weapon_cost = weapons[weapon].cost
+            
+            # Determine if player buys armor (50% chance in pistol, otherwise based on economy)
+            armor = False
+            armor_cost = 0
+            if (is_pistol_round and random.random() < 0.5 and credits >= weapon_cost + 400) or \
+               (not is_pistol_round and credits >= weapon_cost + 1000):
+                armor = True
+                armor_cost = 400 if is_pistol_round else 1000
+            
+            # Calculate total spend
+            total_spend = weapon_cost + armor_cost
+            
+            # Update player credits
+            self.player_credits[player.id] = max(0, credits - total_spend)
+            
+            # Record loadout
+            loadouts[att_team][player.id] = {
+                "weapon": weapon,
+                "armor": armor,
+                "total_spend": total_spend
+            }
+        
+        # Simulate buys for defending team
+        for player in def_players:
+            buy_prefs = BuyPreferences(player.__dict__)
+            credits = self.player_credits.get(player.id, 800 if is_pistol_round else 4000)
+            
+            # Determine buy
+            weapon = buy_prefs.decide_buy(
+                available_credits=credits,
+                team_economy=self.economy[def_team],
+                round_type=def_round_type
+            )
+            
+            # Calculate cost of weapon
+            from .weapons import WeaponFactory
+            weapons = WeaponFactory.create_weapon_catalog()
+            weapon_cost = weapons[weapon].cost
+            
+            # Determine if player buys armor (50% chance in pistol, otherwise based on economy)
+            armor = False
+            armor_cost = 0
+            if (is_pistol_round and random.random() < 0.5 and credits >= weapon_cost + 400) or \
+               (not is_pistol_round and credits >= weapon_cost + 1000):
+                armor = True
+                armor_cost = 400 if is_pistol_round else 1000
+            
+            # Calculate total spend
+            total_spend = weapon_cost + armor_cost
+            
+            # Update player credits
+            self.player_credits[player.id] = max(0, credits - total_spend)
+            
+            # Record loadout
+            loadouts[def_team][player.id] = {
+                "weapon": weapon,
+                "armor": armor,
+                "total_spend": total_spend
+            }
+        
+        return loadouts
+    
+    def _calculate_weapon_advantage(self, team_loadouts: Dict[str, Dict[str, Any]]) -> float:
+        """
+        Calculate weapon advantage based on team loadouts.
+        
+        Args:
+            team_loadouts: Dictionary of player loadouts
+            
+        Returns:
+            Weapon advantage factor
+        """
+        from .weapons import WeaponFactory, WeaponType
+        
+        weapons = WeaponFactory.create_weapon_catalog()
+        advantage = 0.0
+        
+        for player_id, loadout in team_loadouts.items():
+            weapon_name = loadout["weapon"]
+            weapon = weapons.get(weapon_name)
+            
+            if not weapon:
+                continue
+            
+            # Higher tier weapons give more advantage
+            if weapon.type == WeaponType.RIFLE:
+                advantage += 0.02
+            elif weapon.type == WeaponType.SNIPER:
+                advantage += 0.03
+            elif weapon.type == WeaponType.SMG:
+                advantage += 0.01
+            
+            # Armor gives slight advantage
+            if loadout.get("armor", False):
+                advantage += 0.01
+        
+        return advantage
+    
+    def _determine_round_type(self, team_economy: int, team_loss_streak: int) -> str:
+        """
+        Determine the round type for buying decisions.
+        
+        Args:
+            team_economy: Total team economy
+            team_loss_streak: Current loss streak
+            
+        Returns:
+            Round type string
+        """
+        if team_economy >= 4000:
+            return 'full_buy'
+        elif team_economy >= 2500:
+            return 'half_buy'
+        elif team_loss_streak >= 2 or team_economy >= 2000:
+            return 'force_buy'
+        return 'eco'
+    
+    def _update_economy(
+        self, 
+        winner: str, 
+        spike_planted: bool,
+        team_a_players: List[Player],
+        team_b_players: List[Player]
+    ):
         """
         Update team economies based on round results.
         
         Args:
             winner: The winning team ('team_a' or 'team_b')
             spike_planted: Whether the spike was planted
+            team_a_players: List of players on team A
+            team_b_players: List of players on team B
         """
         loser = "team_b" if winner == "team_a" else "team_a"
+        
+        # Get player lists
+        winning_players = team_a_players if winner == "team_a" else team_b_players
+        losing_players = team_b_players if winner == "team_a" else team_a_players
         
         # Reset winner's loss streak, increment loser's
         self.loss_streaks[winner] = 0
         self.loss_streaks[loser] = min(self.loss_streaks[loser] + 1, 4)
         
-        # Apply win reward
-        self.economy[winner] += self.WIN_REWARD
+        # Apply win reward to each winning player
+        for player in winning_players:
+            current_credits = self.player_credits.get(player.id, 0)
+            self.player_credits[player.id] = min(self.MAX_MONEY, current_credits + self.WIN_REWARD)
         
-        # Apply loss reward with streak bonus
+        # Apply loss reward with streak bonus to each losing player
         loss_bonus = self.LOSS_STREAK_BONUS[self.loss_streaks[loser]]
-        self.economy[loser] += self.LOSS_REWARD + loss_bonus
+        total_loss_reward = self.LOSS_REWARD + loss_bonus
         
-        # Add spike plant bonus
+        for player in losing_players:
+            current_credits = self.player_credits.get(player.id, 0)
+            # Ensure losing players don't go below MIN_MONEY and don't exceed MAX_MONEY
+            self.player_credits[player.id] = max(
+                self.MIN_MONEY,
+                min(self.MAX_MONEY, current_credits + total_loss_reward)
+            )
+        
+        # Add plant bonus to planting team players (divided among them)
         if spike_planted:
-            plant_team = "team_a" if self.current_round < 12 else "team_b"
-            self.economy[plant_team] += self.PLANT_BONUS
+            # Determine planting team based on side (attack)
+            planting_team = "team_a" if self.current_round % 24 < 12 else "team_b"
+            planting_players = team_a_players if planting_team == "team_a" else team_b_players
+            
+            # Divide plant bonus among players (each gets full bonus)
+            for player in planting_players:
+                current_credits = self.player_credits.get(player.id, 0)
+                self.player_credits[player.id] = min(
+                    self.MAX_MONEY,
+                    current_credits + self.PLANT_BONUS
+                )
         
-        # Cap economy at min and max values
-        self.economy["team_a"] = max(self.MIN_MONEY, min(self.MAX_MONEY, self.economy["team_a"]))
-        self.economy["team_b"] = max(self.MIN_MONEY, min(self.MAX_MONEY, self.economy["team_b"]))
+        # Update team economy totals (for reporting)
+        self.economy["team_a"] = sum(self.player_credits.get(p.id, 0) for p in team_a_players) / len(team_a_players)
+        self.economy["team_b"] = sum(self.player_credits.get(p.id, 0) for p in team_b_players) / len(team_b_players)
     
     def _is_match_complete(self) -> bool:
         """Check if the match is complete."""
@@ -287,7 +522,8 @@ class MatchSimulator:
         att_team: str,
         def_team: str,
         winner: str,
-        spike_planted: bool
+        spike_planted: bool,
+        player_loadouts: Dict[str, Dict[str, Any]]
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Simulate individual player performances for the round.
@@ -299,6 +535,7 @@ class MatchSimulator:
             def_team: Team identifier for defenders
             winner: Winning team identifier
             spike_planted: Whether spike was planted
+            player_loadouts: Dictionary of player loadouts
             
         Returns:
             Dictionary of player performance results
