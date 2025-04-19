@@ -1,149 +1,141 @@
 """
-Player generation system for creating realistic Valorant professional players.
+Player generation system for Valorant simulation.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 import random
 import names
-import numpy as np
-from datetime import datetime, timedelta
-
-from app.models.player import Player
+from .player_validation import PlayerValidation, ValidationError
 
 class PlayerGenerator:
-    """Generates realistic Valorant professional players with appropriate attributes."""
-    
+    """Generates realistic Valorant professional players."""
+
     # Constants for player generation
     MIN_AGE = 16
     MAX_AGE = 30
-    BASE_SALARY = 50000  # Base annual salary
-    MIN_ROSTER_SIZE = 1
-    
-    # Regions and their associated countries
+    BASE_SALARY = 50000
+
+    # Region definitions with associated countries
     REGIONS = {
         'NA': ['USA', 'Canada', 'Mexico'],
-        'EU': ['France', 'Germany', 'UK', 'Spain', 'Sweden', 'Denmark', 'Poland', 'Turkey'],
-        'KR': ['South Korea'],
-        'JP': ['Japan'],
+        'EU': ['France', 'Germany', 'UK', 'Spain', 'Sweden', 'Denmark', 'Poland'],
+        'APAC': ['Japan', 'Korea', 'China', 'Thailand', 'Indonesia', 'Philippines'],
         'BR': ['Brazil'],
-        'LATAM': ['Argentina', 'Chile', 'Colombia'],
-        'APAC': ['Thailand', 'Indonesia', 'Philippines', 'Singapore', 'Malaysia']
+        'LATAM': ['Argentina', 'Chile', 'Colombia', 'Peru']
     }
-    
-    # Agent roles and their typical agents
-    AGENT_ROLES = {
-        'Duelist': ['Jett', 'Raze', 'Reyna', 'Phoenix', 'Neon', 'Yoru', 'ISO'],
+
+    # Role definitions with associated agents
+    ROLES = {
         'Controller': ['Omen', 'Brimstone', 'Viper', 'Astra', 'Harbor'],
-        'Sentinel': ['Killjoy', 'Cypher', 'Sage', 'Chamber', 'Deadlock'],
-        'Initiator': ['Sova', 'Breach', 'Skye', 'KAY/O', 'Fade', 'Gekko']
+        'Duelist': ['Jett', 'Phoenix', 'Raze', 'Reyna', 'Yoru', 'Neon'],
+        'Initiator': ['Sova', 'Breach', 'Skye', 'KAY/O', 'Fade', 'Gekko'],
+        'Sentinel': ['Killjoy', 'Cypher', 'Sage', 'Chamber', 'Deadlock']
     }
-    
-    def __init__(self, seed: Optional[int] = None):
-        """Initialize the player generator with an optional seed for reproducibility."""
-        if seed is not None:
-            random.seed(seed)
-            np.random.seed(seed)
-    
+
+    def __init__(self):
+        """Initialize the player generator."""
+        self.validation = PlayerValidation()
+
     def generate_player(
         self,
         region: Optional[str] = None,
         role: Optional[str] = None,
-        min_rating: int = 60,
-        max_rating: int = 95
-    ) -> Player:
-        """Generate a single player with the specified constraints."""
+        min_rating: float = 60.0,
+        max_rating: float = 95.0
+    ) -> Dict[str, Union[str, int, float, Dict]]:
+        """Generate a single player with specified constraints."""
         # Validate inputs
-        if region is not None and region not in self.REGIONS:
-            raise ValueError(f"Invalid region: {region}. Must be one of {list(self.REGIONS.keys())}")
-        if role is not None and role not in self.AGENT_ROLES:
-            raise ValueError(f"Invalid role: {role}. Must be one of {list(self.AGENT_ROLES.keys())}")
-        if min_rating < 0 or min_rating > 100:
-            raise ValueError("min_rating must be between 0 and 100")
-        if max_rating < 0 or max_rating > 100:
-            raise ValueError("max_rating must be between 0 and 100")
-        if min_rating > max_rating:
-            raise ValueError("min_rating cannot be greater than max_rating")
+        errors = []
+        if region:
+            region_error = self.validation.validate_region(region, self.REGIONS)
+            if region_error:
+                errors.append(region_error)
+        if role:
+            role_error = self.validation.validate_role(role, self.ROLES)
+            if role_error:
+                errors.append(role_error)
         
-        # Generate basic info
-        region = region or random.choice(list(self.REGIONS.keys()))
-        nationality = random.choice(self.REGIONS[region])
+        rating_error = self.validation.validate_rating_range(min_rating, max_rating)
+        if rating_error:
+            errors.append(rating_error)
+
+        if errors:
+            raise ValueError(f"Invalid parameters: {', '.join(e.message for e in errors)}")
+
+        # Generate player attributes
+        selected_region = region or random.choice(list(self.REGIONS.keys()))
+        selected_role = role or random.choice(list(self.ROLES.keys()))
+        
         age = random.randint(self.MIN_AGE, self.MAX_AGE)
+        nationality = random.choice(self.REGIONS[selected_region])
         
-        # Generate name (using names library)
-        name = names.get_full_name(gender='male')  # Currently pro scene is predominantly male
-        
-        # Determine primary role and proficiencies
-        primary_role = role or random.choice(list(self.AGENT_ROLES.keys()))
-        role_proficiencies = self._generate_role_proficiencies(primary_role)
+        # Generate name (currently male-focused due to pro scene demographics)
+        first_name = names.get_first_name(gender='male')
+        last_name = names.get_last_name()
         
         # Generate core stats with role-specific biases
-        core_stats = self._generate_core_stats(primary_role, min_rating, max_rating)
+        core_stats = self._generate_core_stats(selected_role, min_rating, max_rating)
         
-        # Generate agent proficiencies based on role
-        agent_proficiencies = self._generate_agent_proficiencies(primary_role, role_proficiencies[primary_role])
+        # Generate role and agent proficiencies
+        role_proficiencies = self._generate_role_proficiencies(selected_role)
+        agent_proficiencies = self._generate_agent_proficiencies(selected_role)
         
-        # Calculate salary based on stats and experience
+        # Calculate salary based on stats and age
         salary = self._calculate_salary(core_stats, age)
         
-        # Create the player
-        player = Player(
-            name=name,
-            nationality=nationality,
-            age=age,
-            salary=salary,
-            role=primary_role,
-            role_proficiency=role_proficiencies,
-            agent_proficiency=agent_proficiencies,
-            # Core stats
-            aim=core_stats['aim'],
-            game_sense=core_stats['game_sense'],
-            movement=core_stats['movement'],
-            utility_usage=core_stats['utility_usage'],
-            communication=core_stats['communication'],
-            clutch=core_stats['clutch'],
-            # Dynamic stats
-            form=random.randint(65, 85),
-            fatigue=random.randint(0, 30),
-            morale=random.randint(70, 90),
-            # Career stats (for new player)
-            matches_played=random.randint(50, 200),
-            kills=0,
-            deaths=0,
-            assists=0,
-            rounds_played=0,
-            first_bloods=0,
-            clutches_won=0,
-            # Additional attributes
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
+        # Initialize career statistics
+        career_stats = self._init_career_stats()
         
-        # Initialize career stats based on matches played
-        self._initialize_career_stats(player)
+        player = {
+            'first_name': first_name,
+            'last_name': last_name,
+            'age': age,
+            'nationality': nationality,
+            'region': selected_region,
+            'primary_role': selected_role,
+            'core_stats': core_stats,
+            'role_proficiencies': role_proficiencies,
+            'agent_proficiencies': agent_proficiencies,
+            'salary': salary,
+            'career_stats': career_stats
+        }
+
+        # Validate the complete player object
+        self._validate_player(player)
         
         return player
-    
+
     def generate_team_roster(
         self,
-        region: str,
-        min_rating: int = 70,
-        max_rating: int = 90,
-        roster_size: int = 5
-    ) -> List[Player]:
-        """Generate a balanced team roster with appropriate role distribution."""
+        region: Optional[str] = None,
+        size: int = 5,
+        min_rating: float = 70.0,
+        max_rating: float = 95.0
+    ) -> List[Dict]:
+        """Generate a balanced team roster."""
         # Validate inputs
-        if region not in self.REGIONS:
-            raise ValueError(f"Invalid region: {region}. Must be one of {list(self.REGIONS.keys())}")
-        if roster_size < self.MIN_ROSTER_SIZE:
-            raise ValueError(f"roster_size must be at least {self.MIN_ROSTER_SIZE}")
+        errors = []
+        if region:
+            region_error = self.validation.validate_region(region, self.REGIONS)
+            if region_error:
+                errors.append(region_error)
         
+        size_error = self.validation.validate_roster_size(size)
+        if size_error:
+            errors.append(size_error)
+        
+        rating_error = self.validation.validate_rating_range(min_rating, max_rating)
+        if rating_error:
+            errors.append(rating_error)
+
+        if errors:
+            raise ValueError(f"Invalid parameters: {', '.join(e.message for e in errors)}")
+
+        # Ensure core roles are covered first
+        core_roles = ['Controller', 'Duelist', 'Initiator', 'Sentinel']
         roster = []
         
-        # Ensure core roles are filled
-        required_roles = ['Duelist', 'Controller', 'Sentinel', 'Initiator']
-        random.shuffle(required_roles)
-        
         # Generate players for core roles
-        for role in required_roles[:min(roster_size, len(required_roles))]:
+        for role in core_roles[:min(size, len(core_roles))]:
             player = self.generate_player(
                 region=region,
                 role=role,
@@ -152,8 +144,8 @@ class PlayerGenerator:
             )
             roster.append(player)
         
-        # Add remaining players with flexible roles
-        while len(roster) < roster_size:
+        # Fill remaining slots with flexible roles
+        while len(roster) < size:
             player = self.generate_player(
                 region=region,
                 min_rating=min_rating,
@@ -162,132 +154,182 @@ class PlayerGenerator:
             roster.append(player)
         
         return roster
-    
-    def _generate_role_proficiencies(self, primary_role: str) -> Dict[str, int]:
-        """Generate proficiency levels for all roles."""
-        if primary_role not in self.AGENT_ROLES:
-            raise ValueError(f"Invalid role: {primary_role}. Must be one of {list(self.AGENT_ROLES.keys())}")
-        
-        proficiencies = {}
-        
-        # Primary role gets highest proficiency
-        proficiencies[primary_role] = random.randint(80, 95)
-        
-        # Other roles get lower proficiencies
-        for role in self.AGENT_ROLES.keys():
-            if role != primary_role:
-                proficiencies[role] = random.randint(50, 75)
-        
-        return proficiencies
-    
-    def _generate_core_stats(self, role: str, min_rating: int, max_rating: int) -> Dict[str, int]:
-        """Generate core player statistics with role-specific biases."""
-        if role not in self.AGENT_ROLES:
-            raise ValueError(f"Invalid role: {role}. Must be one of {list(self.AGENT_ROLES.keys())}")
-        
-        # Validate rating range
-        if min_rating < 0 or min_rating > 100:
-            raise ValueError("min_rating must be between 0 and 100")
-        if max_rating < 0 or max_rating > 100:
-            raise ValueError("max_rating must be between 0 and 100")
-        if min_rating > max_rating:
-            raise ValueError("min_rating cannot be greater than max_rating")
-        
-        stats = {}
-        role_bonus = 5  # Bonus for role-specific stats
-        
-        # Base ranges for each stat
-        ranges = {
-            'aim': (min_rating, max_rating),
-            'game_sense': (min_rating, max_rating),
-            'movement': (min_rating, max_rating),
-            'utility_usage': (min_rating, max_rating),
-            'communication': (min_rating, max_rating),
-            'clutch': (min_rating, max_rating)
+
+    def _generate_core_stats(
+        self,
+        role: str,
+        min_rating: float,
+        max_rating: float
+    ) -> Dict[str, float]:
+        """Generate core stats with role-specific biases."""
+        base_stats = {
+            'aim': random.uniform(min_rating, max_rating),
+            'game_sense': random.uniform(min_rating, max_rating),
+            'movement': random.uniform(min_rating, max_rating),
+            'utility_usage': random.uniform(min_rating, max_rating),
+            'communication': random.uniform(min_rating, max_rating),
+            'clutch': random.uniform(min_rating, max_rating)
         }
         
-        # Apply role-specific biases, ensuring we don't exceed max_rating
+        # Apply role-specific biases
         if role == 'Duelist':
-            ranges['aim'] = (min(min_rating + role_bonus, max_rating), max_rating)
-            ranges['movement'] = (min(min_rating + role_bonus, max_rating), max_rating)
+            base_stats['aim'] = min(100, base_stats['aim'] * 1.1)
+            base_stats['movement'] = min(100, base_stats['movement'] * 1.1)
         elif role == 'Controller':
-            ranges['utility_usage'] = (min(min_rating + role_bonus, max_rating), max_rating)
-            ranges['game_sense'] = (min(min_rating + role_bonus, max_rating), max_rating)
+            base_stats['utility_usage'] = min(100, base_stats['utility_usage'] * 1.1)
+            base_stats['game_sense'] = min(100, base_stats['game_sense'] * 1.1)
         elif role == 'Sentinel':
-            ranges['game_sense'] = (min(min_rating + role_bonus, max_rating), max_rating)
-            ranges['clutch'] = (min(min_rating + role_bonus, max_rating), max_rating)
+            base_stats['game_sense'] = min(100, base_stats['game_sense'] * 1.1)
+            base_stats['clutch'] = min(100, base_stats['clutch'] * 1.1)
         elif role == 'Initiator':
-            ranges['utility_usage'] = (min(min_rating + role_bonus, max_rating), max_rating)
-            ranges['communication'] = (min(min_rating + role_bonus, max_rating), max_rating)
+            base_stats['utility_usage'] = min(100, base_stats['utility_usage'] * 1.1)
+            base_stats['communication'] = min(100, base_stats['communication'] * 1.1)
         
-        # Generate stats within adjusted ranges
-        for stat, (min_val, max_val) in ranges.items():
-            # Ensure min_val doesn't exceed max_val
-            min_val = min(min_val, max_val)
-            stats[stat] = random.randint(min_val, max_val)
+        # Validate core stats
+        errors = self.validation.validate_core_stats(base_stats)
+        if errors:
+            raise ValueError(f"Invalid core stats: {', '.join(e.message for e in errors)}")
         
-        return stats
-    
-    def _generate_agent_proficiencies(self, primary_role: str, role_rating: int) -> Dict[str, int]:
-        """Generate agent-specific proficiencies based on player's role."""
-        if primary_role not in self.AGENT_ROLES:
-            raise ValueError(f"Invalid role: {primary_role}. Must be one of {list(self.AGENT_ROLES.keys())}")
-        
+        return base_stats
+
+    def _generate_role_proficiencies(self, primary_role: str) -> Dict[str, float]:
+        """Generate role proficiencies with primary role bias."""
         proficiencies = {}
+        for role in self.ROLES:
+            if role == primary_role:
+                proficiencies[role] = random.uniform(80, 100)
+            else:
+                proficiencies[role] = random.uniform(50, 85)
         
-        # Primary role agents get highest proficiencies
-        for agent in self.AGENT_ROLES[primary_role]:
-            proficiencies[agent] = max(70, min(100, role_rating + random.randint(-10, 10)))
-        
-        # Other agents get lower proficiencies
-        for role, agents in self.AGENT_ROLES.items():
-            if role != primary_role:
-                for agent in agents:
-                    proficiencies[agent] = random.randint(40, 70)
+        # Validate role proficiencies
+        errors = self.validation.validate_proficiencies(proficiencies, list(self.ROLES.keys()))
+        if errors:
+            raise ValueError(f"Invalid role proficiencies: {', '.join(e.message for e in errors)}")
         
         return proficiencies
-    
-    def _calculate_salary(self, stats: Dict[str, int], age: int) -> int:
-        """Calculate player salary based on stats and experience."""
-        if age < self.MIN_AGE or age > self.MAX_AGE:
-            raise ValueError(f"Age must be between {self.MIN_AGE} and {self.MAX_AGE}")
+
+    def _generate_agent_proficiencies(self, primary_role: str) -> Dict[str, float]:
+        """Generate agent proficiencies with role-specific biases."""
+        proficiencies = {}
+        primary_agents = self.ROLES[primary_role]
         
-        # Calculate average of core stats
-        avg_rating = sum(stats.values()) / len(stats)
+        # Generate proficiencies for all agents
+        for role, agents in self.ROLES.items():
+            for agent in agents:
+                if agent in primary_agents:
+                    proficiencies[agent] = random.uniform(80, 100)
+                else:
+                    proficiencies[agent] = random.uniform(50, 85)
         
-        # Base multiplier based on rating (exponential scaling)
-        rating_multiplier = max(0.5, (avg_rating / 70.0) ** 2.5)
+        # Validate agent proficiencies
+        all_agents = [agent for agents in self.ROLES.values() for agent in agents]
+        errors = self.validation.validate_proficiencies(proficiencies, all_agents)
+        if errors:
+            raise ValueError(f"Invalid agent proficiencies: {', '.join(e.message for e in errors)}")
         
-        # Experience multiplier (more exponential scaling)
-        exp_multiplier = min(3.0, ((age - self.MIN_AGE) / 5.0 + 1.0) ** 1.5)
+        return proficiencies
+
+    def _calculate_salary(self, core_stats: Dict[str, float], age: int) -> float:
+        """Calculate player salary based on stats and age."""
+        # Base calculation from core stats
+        stat_multiplier = sum(core_stats.values()) / (len(core_stats) * 100)
         
-        # Calculate final salary with some randomness
-        base = self.BASE_SALARY * rating_multiplier * exp_multiplier
-        variation = random.uniform(0.8, 1.2)
+        # Age factor (peak at 23-27)
+        age_factor = 1.0
+        if 23 <= age <= 27:
+            age_factor = 1.2
+        elif age < 20:
+            age_factor = 0.8
+        elif age > 30:
+            age_factor = 0.7
         
-        return max(int(self.BASE_SALARY * 0.5), int(base * variation))
-    
-    def _initialize_career_stats(self, player: Player):
-        """Initialize career statistics based on matches played."""
-        avg_rounds_per_match = 18
-        rounds_played = player.matches_played * avg_rounds_per_match
-        player.rounds_played = rounds_played
+        return round(self.BASE_SALARY * stat_multiplier * age_factor, 2)
+
+    def _init_career_stats(self) -> Dict[str, Union[int, float]]:
+        """Initialize career statistics."""
+        matches_played = random.randint(50, 500)
+        rounds_per_match = random.uniform(16, 24)  # Average rounds per match
+        total_rounds = int(matches_played * rounds_per_match)
         
-        # Calculate average stats per round based on player rating
-        avg_rating = (player.aim + player.game_sense + player.utility_usage) / 3
-        base_kpr = 0.7 * (avg_rating / 75.0)  # Kills per round
+        # Calculate kills, deaths, assists based on rounds
+        kills_per_round = random.uniform(0.7, 1.2)  # Average kills per round
+        deaths_per_round = random.uniform(0.6, 1.0)  # Average deaths per round
+        assists_per_round = random.uniform(0.3, 0.7)  # Average assists per round
         
-        # Calculate total stats
-        total_kills = int(rounds_played * base_kpr)
-        total_deaths = int(total_kills * random.uniform(0.8, 1.2))  # KD ratio between 0.8 and 1.2
-        total_assists = int(total_kills * random.uniform(0.4, 0.8))
+        kills = int(total_rounds * kills_per_round)
+        deaths = int(total_rounds * deaths_per_round)
+        assists = int(total_rounds * assists_per_round)
         
-        # First bloods and clutches based on role and stats
-        first_blood_rate = 0.15 if player.role == 'Duelist' else 0.08
-        clutch_rate = 0.05 * (player.clutch / 75.0)
+        # First bloods can't exceed matches played
+        first_blood_rate = random.uniform(0.15, 0.35)  # 15-35% chance of getting first blood
+        first_bloods = int(matches_played * first_blood_rate)
         
-        player.kills = total_kills
-        player.deaths = total_deaths
-        player.assists = total_assists
-        player.first_bloods = int(total_kills * first_blood_rate)
-        player.clutches_won = int(rounds_played * clutch_rate) 
+        # Clutches are based on rounds but should be relatively rare
+        clutch_rate = random.uniform(0.02, 0.08)  # 2-8% of rounds are clutched
+        clutches = int(total_rounds * clutch_rate)
+        
+        stats = {
+            'matches_played': matches_played,
+            'kills': kills,
+            'deaths': deaths,
+            'assists': assists,
+            'first_bloods': first_bloods,
+            'clutches': clutches,
+            'win_rate': random.uniform(0.4, 0.6),
+            'kd_ratio': kills / max(deaths, 1),
+            'kda_ratio': (kills + assists) / max(deaths, 1),
+            'first_blood_rate': first_bloods / matches_played,  # Now guaranteed to be between 0 and 1
+            'clutch_rate': clutches / total_rounds  # Now guaranteed to be between 0 and 1
+        }
+        
+        # Validate career stats
+        errors = self.validation.validate_career_stats(stats)
+        if errors:
+            raise ValueError(f"Invalid career stats: {', '.join(e.message for e in errors)}")
+        
+        return stats
+
+    def _validate_player(self, player: Dict) -> None:
+        """Validate the complete player object."""
+        errors = []
+        
+        # Validate age
+        age_error = self.validation.validate_age(player['age'])
+        if age_error:
+            errors.append(age_error)
+        
+        # Validate region
+        region_error = self.validation.validate_region(player['region'], self.REGIONS)
+        if region_error:
+            errors.append(region_error)
+        
+        # Validate role
+        role_error = self.validation.validate_role(player['primary_role'], self.ROLES)
+        if role_error:
+            errors.append(role_error)
+        
+        # Validate core stats
+        core_stat_errors = self.validation.validate_core_stats(player['core_stats'])
+        errors.extend(core_stat_errors)
+        
+        # Validate role proficiencies
+        role_prof_errors = self.validation.validate_proficiencies(
+            player['role_proficiencies'],
+            list(self.ROLES.keys())
+        )
+        errors.extend(role_prof_errors)
+        
+        # Validate agent proficiencies
+        all_agents = [agent for agents in self.ROLES.values() for agent in agents]
+        agent_prof_errors = self.validation.validate_proficiencies(
+            player['agent_proficiencies'],
+            all_agents
+        )
+        errors.extend(agent_prof_errors)
+        
+        # Validate career stats
+        career_stat_errors = self.validation.validate_career_stats(player['career_stats'])
+        errors.extend(career_stat_errors)
+        
+        if errors:
+            raise ValueError(f"Invalid player object: {', '.join(e.message for e in errors)}") 
