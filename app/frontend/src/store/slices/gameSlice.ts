@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { fetchTeamsThunk, createTeamThunk, fetchRegionsThunk, simulateMatchThunk } from '../thunks/gameThunks';
 
 export interface Player {
   id: string;
@@ -54,6 +55,20 @@ export interface MatchResult {
     };
     spike_planted?: boolean;
     clutch_player?: string;
+    economy_log?: {
+      round_number: number;
+      team_a_start: number;
+      team_b_start: number;
+      team_a_end: number;
+      team_b_end: number;
+      team_a_spend: number;
+      team_b_spend: number;
+      team_a_reward: number;
+      team_b_reward: number;
+      winner: string;
+      spike_planted: boolean;
+      notes: string;
+    };
   }>;
   mvp: {
     name: string;
@@ -63,6 +78,21 @@ export interface MatchResult {
       assists: number;
     };
   };
+  economy_logs?: Array<{
+    round_number: number;
+    team_a_start: number;
+    team_b_start: number;
+    team_a_end: number;
+    team_b_end: number;
+    team_a_spend: number;
+    team_b_spend: number;
+    team_a_reward: number;
+    team_b_reward: number;
+    winner: string;
+    spike_planted: boolean;
+    notes: string;
+  }>;
+  match_id?: string;
 }
 
 export interface MatchRequest {
@@ -123,21 +153,59 @@ const gameSlice = createSlice({
     createTeam: (state, action: PayloadAction<Team>) => {
       // Team creation logic will be handled by thunk
     },
-    simulateMatch: {
-      prepare: (request: MatchRequest) => ({ payload: request }),
-      reducer: (state, action: PayloadAction<MatchRequest | MatchResult>) => {
-        if ('winner' in action.payload) {
-          state.currentMatch = action.payload as MatchResult;
-        }
-        // If it's a MatchRequest, the thunk will handle it
-      },
-    },
     clearMatch: (state) => {
       state.currentMatch = null;
     },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.loading = action.payload;
     },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch Teams
+      .addCase(fetchTeamsThunk.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(fetchTeamsThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        state.teams = action.payload;
+      })
+      .addCase(fetchTeamsThunk.rejected, (state) => {
+        state.loading = false;
+      })
+      // Create Team
+      .addCase(createTeamThunk.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(createTeamThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        state.teams.push(action.payload);
+      })
+      .addCase(createTeamThunk.rejected, (state) => {
+        state.loading = false;
+      })
+      // Fetch Regions
+      .addCase(fetchRegionsThunk.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(fetchRegionsThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        state.regions = action.payload;
+      })
+      .addCase(fetchRegionsThunk.rejected, (state) => {
+        state.loading = false;
+      })
+      // Simulate Match
+      .addCase(simulateMatchThunk.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(simulateMatchThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentMatch = action.payload;
+      })
+      .addCase(simulateMatchThunk.rejected, (state) => {
+        state.loading = false;
+      });
   },
 });
 
@@ -149,7 +217,6 @@ export const {
   fetchRegions,
   fetchTeams,
   createTeam,
-  simulateMatch,
   clearMatch,
   setLoading,
 } = gameSlice.actions;

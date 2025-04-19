@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
-import { useSelector } from 'react-redux';
+import React, { useState, useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { Box, Paper, Typography, Grid, Button, CircularProgress } from '@mui/material';
 import { RootState, AppDispatch } from '../store';
 import { simulateMatch } from '../store/slices/matchSlice';
+import { fetchTeamsThunk } from '../store/thunks/gameThunks';
 import TeamSelector from '../components/TeamSelector';
-import { useDispatch } from 'react-redux';
-
-// Create a typed dispatch hook
-const useAppDispatch = () => useDispatch<AppDispatch>();
 
 const MatchSimulation: React.FC = () => {
-  const dispatch = useAppDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const [teamA, setTeamA] = useState('');
   const [teamB, setTeamB] = useState('');
   const { currentMatch, loading } = useSelector((state: RootState) => state.match);
+  const teams = useSelector((state: RootState) => state.game.teams);
+
+  useEffect(() => {
+    dispatch(fetchTeamsThunk());
+  }, [dispatch]);
 
   const handleSimulate = () => {
     if (teamA && teamB && teamA !== teamB) {
@@ -29,45 +31,61 @@ const MatchSimulation: React.FC = () => {
 
       {!currentMatch ? (
         <Paper elevation={3} sx={{ p: 3, maxWidth: 500, mx: 'auto' }}>
-          <Grid container spacing={3}>
-            <Grid item xs={12}>
-              <TeamSelector
-                label="Team A"
-                value={teamA}
-                onChange={setTeamA}
-                otherTeam={teamB}
-              />
-            </Grid>
-            <Grid item xs={12} sx={{ textAlign: 'center' }}>
-              <Typography variant="h6" color="text.secondary">VS</Typography>
-            </Grid>
-            <Grid item xs={12}>
-              <TeamSelector
-                label="Team B"
-                value={teamB}
-                onChange={setTeamB}
-                otherTeam={teamA}
-              />
-            </Grid>
-            <Grid item xs={12}>
+          {teams.length < 2 ? (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h6" color="text.secondary" gutterBottom>
+                You need at least two teams to simulate a match
+              </Typography>
               <Button
                 variant="contained"
-                fullWidth
-                size="large"
-                onClick={handleSimulate}
-                disabled={loading || !teamA || !teamB || teamA === teamB}
+                component="a"
+                href="/teams/create"
+                sx={{ mt: 2 }}
               >
-                {loading ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <CircularProgress size={24} sx={{ mr: 1 }} />
-                    Simulating Match...
-                  </Box>
-                ) : (
-                  'Start Match'
-                )}
+                Create New Team
               </Button>
+            </Box>
+          ) : (
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <TeamSelector
+                  label="Team A"
+                  value={teamA}
+                  onChange={setTeamA}
+                  otherTeam={teamB}
+                />
+              </Grid>
+              <Grid item xs={12} sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="text.secondary">VS</Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <TeamSelector
+                  label="Team B"
+                  value={teamB}
+                  onChange={setTeamB}
+                  otherTeam={teamA}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  onClick={handleSimulate}
+                  disabled={loading || !teamA || !teamB || teamA === teamB}
+                >
+                  {loading ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CircularProgress size={24} sx={{ mr: 1 }} />
+                      Simulating Match...
+                    </Box>
+                  ) : (
+                    'Start Match'
+                  )}
+                </Button>
+              </Grid>
             </Grid>
-          </Grid>
+          )}
         </Paper>
       ) : (
         <Box>

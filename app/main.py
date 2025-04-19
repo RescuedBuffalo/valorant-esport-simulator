@@ -1,12 +1,29 @@
 """
 Main application entry point.
 """
+import logging
+import traceback
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.analytics import Analytics
 from app.core.config import settings
+from app.db.session import engine
+from app.models import match_history
+
+# Create database tables
+match_history.Base.metadata.create_all(bind=engine)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("valorant-sim")
 
 app = FastAPI(
     title="Valorant Esports Simulator",
@@ -26,18 +43,28 @@ app.add_middleware(
 # Initialize analytics
 analytics = Analytics(
     mixpanel_token=settings.MIXPANEL_TOKEN,
-    environment=settings.ENVIRONMENT
+    environment=settings.ENVIRONMENT,
+    sentry_dsn=settings.SENTRY_DSN
 )
 
 @app.middleware("http")
 async def track_requests(request: Request, call_next):
     """Middleware to track all requests."""
+    # Log request details
+    logger.info(f"Request: {request.method} {request.url.path} - Client: {request.client.host}")
+    
     response = await call_next(request)
     
+    # Log response status
+    logger.info(f"Response: {response.status_code}")
+    
     if hasattr(request.state, "user_id"):
+        # Get session ID safely, with default if not present
+        session_id = getattr(request.session, "session_id", None) if hasattr(request, "session") else None
+        
         analytics.track_user_session(
             user_id=request.state.user_id,
-            session_id=request.session.get("session_id"),
+            session_id=session_id or "anonymous",
             request=request
         )
     
@@ -53,15 +80,27 @@ from app.api.v1 import team, player, match, tournament
 
 app.include_router(team.router, prefix="/api/v1/teams", tags=["teams"])
 app.include_router(player.router, prefix="/api/v1/players", tags=["players"])
-app.include_router(match.router, prefix="/api/v1/matches", tags=["matches"])
+app.include_router(match.router, prefix="/api/v1/match", tags=["matches"])
 app.include_router(tournament.router, prefix="/api/v1/tournaments", tags=["tournaments"])
+
+@app.get("/api/v1/regions")
+async def get_regions():
+    """Get available regions."""
+    return {
+        "regions": ["NA", "EU", "APAC", "BR", "LATAM"]
+    }
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
+    # Log the full exception with traceback
+    error_details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    logger.error(f"Unhandled exception for {request.method} {request.url.path}:\n{error_details}")
+    
+    # Return a generic error response to the client
     return JSONResponse(
         status_code=500,
-        content={"message": "Internal server error"}
+        content={"message": "Internal server error", "error_type": str(type(exc).__name__)}
     )
 
 """
@@ -97,41 +136,40 @@ class ValorantSim:
             for stat, value in player['coreStats'].items():
                 print(f"    {stat}: {value:.1f}")
                 
-    def simulate_match(self, team_a_name: str, team_b_name: str) -> None:
+    def simulate_match(self, team_a_name: str, team_b_name: str) -> Dict:
         """Simulate a match between two teams."""
+        logger.info(f"Simulating match: {team_a_name} vs {team_b_name}")
+        
         if team_a_name not in self.teams or team_b_name not in self.teams:
-            print("Error: Team not found!")
-            return
+            logger.error(f"Team not found. Available teams: {list(self.teams.keys())}")
+            raise ValueError(f"Team not found. Teams requested: {team_a_name}, {team_b_name}")
             
         map_name = random.choice(self.maps)
-        print(f"\nMatch starting on {map_name}")
-        print(f"{team_a_name} vs {team_b_name}")
+        logger.info(f"Selected map: {map_name}")
         
-        match_result = self.match_engine.simulate_match(
-            self.teams[team_a_name],
-            self.teams[team_b_name],
-            map_name
-        )
+        try:
+            match_result = self.match_engine.simulate_match(
+                self.teams[team_a_name],
+                self.teams[team_b_name],
+                map_name
+            )
+            
+            # Log match result summary
+            logger.info(f"Match completed. Score: {team_a_name} {match_result['score']['team_a']} - {match_result['score']['team_b']} {team_b_name}")
+            
+            # Update team stats
+            winner = team_a_name if match_result["score"]["team_a"] > match_result["score"]["team_b"] else team_b_name
+            loser = team_b_name if winner == team_a_name else team_a_name
+            
+            self.teams[winner]["stats"]["wins"] += 1
+            self.teams[loser]["stats"]["losses"] += 1
+            
+            return match_result
+        except Exception as e:
+            logger.error(f"Error simulating match: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
         
-        print("\nMatch Results:")
-        print(f"Score: {team_a_name} {match_result['score']['team_a']} - {match_result['score']['team_b']} {team_b_name}")
-        print(f"Duration: {match_result['duration']} minutes")
-        
-        # Print round details
-        print("\nRound Summary:")
-        for i, round_data in enumerate(match_result['rounds'], 1):
-            winner = team_a_name if round_data['winner'] == 'team_a' else team_b_name
-            print(f"\nRound {i}:")
-            print(f"  Winner: {winner}")
-            print(f"  Economy:")
-            print(f"    {team_a_name}: {round_data['economy']['team_a']}")
-            print(f"    {team_b_name}: {round_data['economy']['team_b']}")
-            if round_data.get('spike_planted'):
-                print("  Spike was planted!")
-            if round_data.get('clutch_player'):
-                clutch_team = team_a_name if round_data['winner'] == 'team_a' else team_b_name
-                print(f"  Clutch play by {clutch_team}!")
-                
     def run_cli(self):
         """Run the command-line interface."""
         print("Welcome to Valorant Simulation!")

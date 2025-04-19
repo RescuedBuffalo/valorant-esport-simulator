@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -21,7 +22,8 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { AppDispatch, RootState } from '../store';
-import { simulateMatch, clearMatch } from '../store/slices/gameSlice';
+import { clearMatch } from '../store/slices/gameSlice';
+import { simulateMatchThunk } from '../store/thunks/gameThunks';
 import type { MatchResult } from '../store/slices/gameSlice';
 import ErrorBoundary from './ErrorBoundary';
 import PerformanceMonitor from '../utils/performance';
@@ -35,6 +37,9 @@ const RoundSummary: React.FC<{ round: Round; index: number; teamA: string; teamB
   teamB,
 }) => {
   const startTime = PerformanceMonitor.startMeasure('RoundSummary');
+  
+  // Get economy logs if available
+  const economyLog = round.economy_log || null;
   
   try {
     const content = (
@@ -58,50 +63,113 @@ const RoundSummary: React.FC<{ round: Round; index: number; teamA: string; teamB
                 {teamB}
               </Typography>
             </Box>
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>Economy</Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={(round.economy.team_a / 50000) * 100}
-                    sx={{ height: 8, borderRadius: 4 }}
-                  />
-                  <Typography variant="caption">${round.economy.team_a}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={(round.economy.team_b / 50000) * 100}
-                    sx={{ height: 8, borderRadius: 4 }}
-                  />
-                  <Typography variant="caption">${round.economy.team_b}</Typography>
-                </Grid>
-              </Grid>
+            
+            {/* Economy Visualization */}
+            <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #ddd' }}>
+              <Typography variant="subtitle2" gutterBottom>Economy</Typography>
+              
+              {/* Team A Economy */}
+              <Box sx={{ mb: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">{teamA}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    {economyLog && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                        {economyLog.team_a_start} →
+                      </Typography>
+                    )}
+                    <Typography variant="body2" fontWeight="bold">
+                      {round.economy?.team_a || '?'}
+                    </Typography>
+                  </Box>
+                </Box>
+                
+                {economyLog && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', mt: 0.5 }}>
+                    {economyLog.team_a_spend > 0 && (
+                      <Typography variant="caption" color="error" sx={{ mr: 1 }}>
+                        -${economyLog.team_a_spend}
+                      </Typography>
+                    )}
+                    {economyLog.team_a_reward > 0 && (
+                      <Typography variant="caption" color="success.main">
+                        +${economyLog.team_a_reward}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(100, ((round.economy?.team_a || 0) / 9000) * 100)} 
+                  color={round.winner === 'team_a' ? 'primary' : 'secondary'}
+                  sx={{ mt: 0.5, height: 8, borderRadius: 1 }}
+                />
+              </Box>
+              
+              {/* Team B Economy */}
+              <Box sx={{ mt: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">{teamB}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    {economyLog && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                        {economyLog.team_b_start} →
+                      </Typography>
+                    )}
+                    <Typography variant="body2" fontWeight="bold">
+                      {round.economy?.team_b || '?'}
+                    </Typography>
+                  </Box>
+                </Box>
+                
+                {economyLog && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', mt: 0.5 }}>
+                    {economyLog.team_b_spend > 0 && (
+                      <Typography variant="caption" color="error" sx={{ mr: 1 }}>
+                        -${economyLog.team_b_spend}
+                      </Typography>
+                    )}
+                    {economyLog.team_b_reward > 0 && (
+                      <Typography variant="caption" color="success.main">
+                        +${economyLog.team_b_reward}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(100, ((round.economy?.team_b || 0) / 9000) * 100)} 
+                  color={round.winner === 'team_b' ? 'primary' : 'secondary'}
+                  sx={{ mt: 0.5, height: 8, borderRadius: 1 }}
+                />
+              </Box>
             </Box>
-            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+            
+            {/* Round Details */}
+            <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
               {round.spike_planted && (
-                <Chip 
-                  label="Spike Planted" 
-                  color="success" 
-                  size="small" 
-                  sx={{ borderRadius: 1 }}
-                />
+                <Chip size="small" label="Spike Planted" color="secondary" variant="outlined" />
               )}
+              
               {round.clutch_player && (
-                <Chip 
-                  label="Clutch Play!" 
-                  color="primary" 
-                  size="small"
-                  sx={{ borderRadius: 1 }}
-                />
+                <Chip size="small" label="Clutch Play" color="primary" variant="outlined" />
+              )}
+              
+              {economyLog && economyLog.notes && (
+                <Box sx={{ width: '100%', mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                    {economyLog.notes}
+                  </Typography>
+                </Box>
               )}
             </Box>
           </CardContent>
         </Card>
       </Grow>
     );
-
+    
     PerformanceMonitor.endMeasure('RoundSummary', startTime);
     return content;
   } catch (error) {
@@ -238,20 +306,35 @@ const TeamSelector: React.FC<{
 const MatchSimulation: React.FC = () => {
   const startTime = PerformanceMonitor.startMeasure('MatchSimulation');
   const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
   const teams = useSelector((state: RootState) => state.game.teams);
   const currentMatch = useSelector((state: RootState) => state.game.currentMatch);
   const loading = useSelector((state: RootState) => state.game.loading);
 
   const [teamA, setTeamA] = useState('');
   const [teamB, setTeamB] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const handleSimulate = async () => {
     try {
+      setError(null); // Clear any previous errors
       if (teamA && teamB && teamA !== teamB) {
-        await dispatch(simulateMatch({ team_a: teamA, team_b: teamB }));
+        console.log(`Simulating match: ${teamA} vs ${teamB}`);
+        const result = await dispatch(simulateMatchThunk({ team_a: teamA, team_b: teamB }));
+        
+        // Check for rejection
+        if (simulateMatchThunk.rejected.match(result)) {
+          // Handle rejection specifically
+          const errorMessage = result.error?.message || 'Unknown error occurred';
+          console.error('Match simulation failed:', errorMessage);
+          setError(`Match simulation failed: ${errorMessage}`);
+        }
       }
-    } catch (error) {
-      console.error('Error simulating match:', error);
+    } catch (error: any) {
+      // Handle any uncaught exceptions
+      const errorMessage = error?.response?.data?.detail || error?.message || 'Unknown error occurred';
+      console.error('Error simulating match:', errorMessage);
+      setError(`Error: ${errorMessage}`);
     }
   };
 
@@ -260,9 +343,14 @@ const MatchSimulation: React.FC = () => {
       dispatch(clearMatch());
       setTeamA('');
       setTeamB('');
+      setError(null); // Clear errors on new match
     } catch (error) {
       console.error('Error clearing match:', error);
     }
+  };
+
+  const navigateToTeamCreation = () => {
+    navigate('/team-creation');
   };
 
   try {
@@ -278,7 +366,7 @@ const MatchSimulation: React.FC = () => {
             variant="contained"
             fullWidth
             sx={{ mt: 2 }}
-            onClick={() => {/* Navigate to team creation */}}
+            onClick={navigateToTeamCreation}
           >
             Create New Team
           </Button>
@@ -333,6 +421,26 @@ const MatchSimulation: React.FC = () => {
                       )}
                     </Button>
                   </Grid>
+                  
+                  {/* Error message display */}
+                  {error && (
+                    <Grid item xs={12}>
+                      <Box 
+                        sx={{ 
+                          mt: 2, 
+                          p: 2, 
+                          bgcolor: 'error.lighter', 
+                          borderRadius: 1,
+                          border: '1px solid',
+                          borderColor: 'error.main'
+                        }}
+                      >
+                        <Typography color="error.main" variant="body2">
+                          {error}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  )}
                 </Grid>
               </Paper>
             </Grow>

@@ -18,7 +18,7 @@ import {
   Divider,
 } from '@mui/material';
 import { AppDispatch, RootState } from '../store';
-import { fetchTeams } from '../store/slices/gameSlice';
+import { fetchTeamsThunk } from '../store/thunks/gameThunks';
 import type { Team, Player } from '../store/slices/gameSlice';
 import ErrorBoundary from './ErrorBoundary';
 import PerformanceMonitor from '../utils/performance';
@@ -206,12 +206,12 @@ const TeamCard: React.FC<{ team: Team }> = ({ team }) => {
 const TeamList: React.FC = () => {
   const startTime = PerformanceMonitor.startMeasure('TeamList');
   const dispatch = useDispatch<AppDispatch>();
-  const teams = useSelector((state: RootState) => state.game.teams);
+  const teams = useSelector((state: RootState) => state.game.teams || []);
   const loading = useSelector((state: RootState) => state.game.loading);
 
   useEffect(() => {
     try {
-      dispatch(fetchTeams());
+      dispatch(fetchTeamsThunk());
     } catch (error) {
       console.error('Error fetching teams:', error);
     }
@@ -229,7 +229,7 @@ const TeamList: React.FC = () => {
           </Typography>
         </Box>
       );
-    } else if (teams.length === 0) {
+    } else if (!Array.isArray(teams) || teams.length === 0) {
       content = (
         <Paper 
           elevation={3} 

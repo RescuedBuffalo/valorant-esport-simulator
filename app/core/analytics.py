@@ -9,17 +9,16 @@ import sentry_sdk
 from fastapi import Request
 
 class Analytics:
-    def __init__(self, mixpanel_token: str, environment: str = "development"):
-        self.mp = mixpanel.Mixpanel(mixpanel_token)
+    def __init__(self, mixpanel_token: Optional[str] = None, environment: str = "development", sentry_dsn: Optional[str] = None):
         self.environment = environment
         self.mixpanel_token = mixpanel_token
+        self.mp = mixpanel.Mixpanel(mixpanel_token) if mixpanel_token else None
         
         # Initialize Sentry only if DSN is provided
         if sentry_sdk.Hub.current.client is None and environment == "production":
-            dsn = "YOUR_SENTRY_DSN"  # Replace with actual DSN in production
-            if dsn and dsn != "YOUR_SENTRY_DSN":
+            if sentry_dsn:
                 sentry_sdk.init(
-                    dsn=dsn,
+                    dsn=sentry_dsn,
                     environment=environment,
                     traces_sample_rate=1.0,
                 )
@@ -31,6 +30,9 @@ class Analytics:
         properties: Optional[Dict[str, Any]] = None
     ):
         """Track a game-related event."""
+        if not self.mp:
+            return  # Skip tracking if Mixpanel is not configured
+            
         if properties is None:
             properties = {}
             
@@ -39,8 +41,7 @@ class Analytics:
             "environment": self.environment,
         })
         
-        if self.mixpanel_token:
-            self.mp.track(user_id, event_name, properties)
+        self.mp.track(user_id, event_name, properties)
 
     def track_match_result(
         self,
@@ -115,8 +116,8 @@ class Analytics:
         request: Request
     ):
         """Track user session information."""
-        if not self.mixpanel_token:
-            return  # Skip tracking if no token is configured
+        if not self.mp:
+            return  # Skip tracking if Mixpanel is not configured
         
         properties = {
             "session_id": session_id,

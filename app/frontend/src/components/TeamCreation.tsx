@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
   Button,
@@ -11,36 +11,28 @@ import {
   Typography,
   SelectChangeEvent,
 } from '@mui/material';
-import { AppDispatch } from '../store';
-import { createTeam, fetchRegions } from '../store/slices/gameSlice';
-import type { Team } from '../store/slices/gameSlice';
+import { AppDispatch, RootState } from '../store';
+import { createTeamThunk, fetchRegionsThunk } from '../store/thunks/gameThunks';
 
 const TeamCreation: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const [teamName, setTeamName] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('');
+  const regions = useSelector((state: RootState) => state.game.regions);
+  const loading = useSelector((state: RootState) => state.game.loading);
 
   useEffect(() => {
-    dispatch(fetchRegions());
+    dispatch(fetchRegionsThunk());
   }, [dispatch]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (teamName.trim() && selectedRegion) {
       try {
-        const newTeam: Omit<Team, 'id'> = {
+        await dispatch(createTeamThunk({
           name: teamName.trim(),
           region: selectedRegion,
-          reputation: 50,
-          players: [],
-          stats: {
-            wins: 0,
-            losses: 0,
-            tournaments_won: 0,
-            prize_money: 0,
-          },
-        };
-        await dispatch(createTeam(newTeam as Team));
+        }));
         setTeamName('');
         setSelectedRegion('');
       } catch (error) {
@@ -74,7 +66,7 @@ const TeamCreation: React.FC = () => {
           label="Region"
           required
         >
-          {['NA', 'EU', 'APAC', 'LATAM', 'BR'].map((region) => (
+          {regions.map((region) => (
             <MenuItem key={region} value={region}>
               {region}
             </MenuItem>
@@ -85,9 +77,9 @@ const TeamCreation: React.FC = () => {
         type="submit"
         variant="contained"
         fullWidth
-        disabled={!teamName.trim() || !selectedRegion}
+        disabled={loading || !teamName.trim() || !selectedRegion}
       >
-        Create Team
+        {loading ? 'Creating Team...' : 'Create Team'}
       </Button>
     </Box>
   );

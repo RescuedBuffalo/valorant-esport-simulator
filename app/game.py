@@ -1,5 +1,5 @@
 """
-Valorant simulation game module.
+Main entry point for the Valorant simulation game.
 """
 import sys
 import random
@@ -15,15 +15,26 @@ class ValorantSim:
         self.teams: Dict[str, List[Dict]] = {}
         self.maps = ["Ascent", "Bind", "Haven", "Split", "Icebox"]
         
-    def generate_new_team(self, name: str, region: Optional[str] = None) -> None:
+    def generate_new_team(self, name: str, region: Optional[str] = None) -> Dict:
         """Generate a new team with 5 players."""
-        self.teams[name] = self.player_generator.generate_team_roster(region=region)
-        print(f"\nTeam {name} generated:")
-        self._print_team(self.teams[name])
+        roster = self.player_generator.generate_team_roster(region=region)
+        team = {
+            "name": name,
+            "region": region or "Unknown",
+            "roster": roster,
+            "stats": {
+                "wins": 0,
+                "losses": 0,
+                "tournaments_won": 0,
+                "prize_money": 0
+            }
+        }
+        self.teams[name] = team
+        return team
         
     def _print_team(self, team: List[Dict]) -> None:
         """Print team roster details."""
-        for player in team:
+        for player in team["roster"]:
             print(f"\n{player['gamerTag']} ({player['firstName']} {player['lastName']}):")
             print(f"  Role: {player['primaryRole']}")
             print(f"  Region: {player['region']}")
@@ -31,41 +42,36 @@ class ValorantSim:
             for stat, value in player['coreStats'].items():
                 print(f"    {stat}: {value:.1f}")
                 
-    def simulate_match(self, team_a_name: str, team_b_name: str) -> None:
+    def simulate_match(self, team_a_name: str, team_b_name: str) -> Dict:
         """Simulate a match between two teams."""
         if team_a_name not in self.teams or team_b_name not in self.teams:
-            print("Error: Team not found!")
-            return
+            raise ValueError("Team not found!")
             
         map_name = random.choice(self.maps)
-        print(f"\nMatch starting on {map_name}")
-        print(f"{team_a_name} vs {team_b_name}")
         
         match_result = self.match_engine.simulate_match(
-            self.teams[team_a_name],
-            self.teams[team_b_name],
+            self.teams[team_a_name]["roster"],
+            self.teams[team_b_name]["roster"],
             map_name
         )
         
-        print("\nMatch Results:")
-        print(f"Score: {team_a_name} {match_result['score']['team_a']} - {match_result['score']['team_b']} {team_b_name}")
-        print(f"Duration: {match_result['duration']} minutes")
+        # Update team stats
+        winner = team_a_name if match_result["score"]["team_a"] > match_result["score"]["team_b"] else team_b_name
+        loser = team_b_name if winner == team_a_name else team_a_name
         
-        # Print round details
-        print("\nRound Summary:")
-        for i, round_data in enumerate(match_result['rounds'], 1):
-            winner = team_a_name if round_data['winner'] == 'team_a' else team_b_name
-            print(f"\nRound {i}:")
-            print(f"  Winner: {winner}")
-            print(f"  Economy:")
-            print(f"    {team_a_name}: {round_data['economy']['team_a']}")
-            print(f"    {team_b_name}: {round_data['economy']['team_b']}")
-            if round_data.get('spike_planted'):
-                print("  Spike was planted!")
-            if round_data.get('clutch_player'):
-                clutch_team = team_a_name if round_data['winner'] == 'team_a' else team_b_name
-                print(f"  Clutch play by {clutch_team}!")
-                
+        self.teams[winner]["stats"]["wins"] += 1
+        self.teams[loser]["stats"]["losses"] += 1
+        
+        return match_result
+
+    def get_teams(self) -> List[Dict]:
+        """Get all teams."""
+        return list(self.teams.values())
+
+    def get_team(self, name: str) -> Optional[Dict]:
+        """Get a specific team by name."""
+        return self.teams.get(name)
+
     def run_cli(self):
         """Run the command-line interface."""
         print("Welcome to Valorant Simulation!")
@@ -117,4 +123,12 @@ class ValorantSim:
                 sys.exit(0)
                 
             else:
-                print("Invalid choice!") 
+                print("Invalid choice!")
+
+def main():
+    """Entry point for the simulation."""
+    sim = ValorantSim()
+    sim.run_cli()
+
+if __name__ == "__main__":
+    main() 
