@@ -7,6 +7,15 @@ import {
   Grid,
   Typography,
   CircularProgress,
+  Avatar,
+  Chip,
+  Paper,
+  Fade,
+  Grow,
+  LinearProgress,
+  IconButton,
+  Tooltip,
+  Divider,
 } from '@mui/material';
 import { AppDispatch, RootState } from '../store';
 import { fetchTeams } from '../store/slices/gameSlice';
@@ -14,25 +23,88 @@ import type { Team, Player } from '../store/slices/gameSlice';
 import ErrorBoundary from './ErrorBoundary';
 import PerformanceMonitor from '../utils/performance';
 
+const StatBar: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <Box sx={{ mb: 1 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="caption" color="text.primary">
+        {value.toFixed(1)}
+      </Typography>
+    </Box>
+    <LinearProgress
+      variant="determinate"
+      value={value}
+      sx={{
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: 'grey.200',
+        '& .MuiLinearProgress-bar': {
+          borderRadius: 3,
+        },
+      }}
+    />
+  </Box>
+);
+
 const PlayerCard: React.FC<{ player: Player }> = ({ player }) => {
   const startTime = PerformanceMonitor.startMeasure('PlayerCard');
   
   try {
     const content = (
-      <Card variant="outlined" sx={{ mb: 1 }}>
+      <Card variant="outlined" sx={{ 
+        mb: 2,
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        '&:hover': {
+          transform: 'translateY(-4px)',
+          boxShadow: 3,
+        },
+      }}>
         <CardContent>
-          <Typography variant="h6">
-            {player.firstName} "{player.lastName}"
-          </Typography>
-          <Typography color="text.secondary" gutterBottom>
-            {player.role} • {player.nationality} • Age: {player.age}
-          </Typography>
-          <Grid container spacing={1}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Avatar 
+              sx={{ 
+                width: 56, 
+                height: 56, 
+                bgcolor: 'primary.main',
+                mr: 2,
+              }}
+            >
+              {player.firstName[0]}{player.lastName[0]}
+            </Avatar>
+            <Box>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>
+                {player.firstName} "{player.lastName}"
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Chip 
+                  label={player.role}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                />
+                <Chip 
+                  label={player.nationality}
+                  size="small"
+                  variant="outlined"
+                />
+                <Chip 
+                  label={`Age: ${player.age}`}
+                  size="small"
+                  variant="outlined"
+                />
+              </Box>
+            </Box>
+          </Box>
+          <Divider sx={{ my: 2 }} />
+          <Grid container spacing={2}>
             {Object.entries(player.stats).map(([stat, value]) => (
               <Grid item xs={6} key={stat}>
-                <Typography variant="body2">
-                  {stat}: {value.toFixed(1)}
-                </Typography>
+                <StatBar 
+                  label={stat.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')} 
+                  value={value} 
+                />
               </Grid>
             ))}
           </Grid>
@@ -53,29 +125,74 @@ const TeamCard: React.FC<{ team: Team }> = ({ team }) => {
   
   try {
     const content = (
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom>
-            {team.name}
-          </Typography>
-          <Typography color="text.secondary" gutterBottom>
-            Region: {team.region} • Reputation: {team.reputation}
-          </Typography>
-          <Typography variant="subtitle1" gutterBottom>
-            Record: {team.stats.wins}W - {team.stats.losses}L
-          </Typography>
-          <Typography variant="subtitle1" gutterBottom>
-            Tournaments Won: {team.stats.tournaments_won}
-          </Typography>
-          <Box sx={{ mt: 2 }}>
+      <Grow in timeout={300}>
+        <Paper elevation={2} sx={{ 
+          mb: 4,
+          overflow: 'hidden',
+          transition: 'transform 0.2s, box-shadow 0.2s',
+          '&:hover': {
+            transform: 'translateY(-4px)',
+            boxShadow: 4,
+          },
+        }}>
+          <Box sx={{ 
+            p: 3, 
+            background: 'linear-gradient(45deg, primary.main, primary.dark)',
+            color: 'white',
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Avatar 
+                  sx={{ 
+                    width: 64, 
+                    height: 64,
+                    bgcolor: 'white',
+                    color: 'primary.main',
+                    mr: 2,
+                  }}
+                >
+                  {team.name[0]}
+                </Avatar>
+                <Box>
+                  <Typography variant="h4" gutterBottom>
+                    {team.name}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Chip 
+                      label={`Region: ${team.region}`}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}
+                    />
+                    <Chip 
+                      label={`Reputation: ${team.reputation}`}
+                      size="small"
+                      sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}
+                    />
+                  </Box>
+                </Box>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="h6">
+                  {team.stats.wins}W - {team.stats.losses}L
+                </Typography>
+                <Typography variant="body2">
+                  Tournaments Won: {team.stats.tournaments_won}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Roster
+            </Typography>
             <ErrorBoundary>
               {team.players.map((player) => (
                 <PlayerCard key={player.id} player={player} />
               ))}
             </ErrorBoundary>
           </Box>
-        </CardContent>
-      </Card>
+        </Paper>
+      </Grow>
     );
 
     PerformanceMonitor.endMeasure('TeamCard', startTime);
@@ -105,20 +222,37 @@ const TeamList: React.FC = () => {
 
     if (loading) {
       content = (
-        <Box display="flex" justifyContent="center" mt={4}>
-          <CircularProgress />
+        <Box display="flex" flexDirection="column" alignItems="center" mt={4}>
+          <CircularProgress size={48} />
+          <Typography variant="h6" color="text.secondary" sx={{ mt: 2 }}>
+            Loading Teams...
+          </Typography>
         </Box>
       );
     } else if (teams.length === 0) {
       content = (
-        <Box sx={{ p: 3 }}>
-          <Typography>No teams created yet. Create your first team!</Typography>
-        </Box>
+        <Paper 
+          elevation={3} 
+          sx={{ 
+            p: 4, 
+            textAlign: 'center',
+            maxWidth: 400,
+            mx: 'auto',
+            mt: 4,
+          }}
+        >
+          <Typography variant="h5" gutterBottom>
+            No Teams Yet
+          </Typography>
+          <Typography color="text.secondary" paragraph>
+            Start by creating your first team to begin your journey!
+          </Typography>
+        </Paper>
       );
     } else {
       content = (
         <Box sx={{ p: 3 }}>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant="h3" gutterBottom align="center" sx={{ mb: 4 }}>
             Teams
           </Typography>
           {teams.map((team) => (

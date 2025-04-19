@@ -2,6 +2,12 @@
 
 A web-based management simulation game where players take on the role of a Valorant esports team manager. Build your team from the ground up, manage players, compete in tournaments, and become the best Valorant organization in the world.
 
+## Inspiration
+My inspiration is drawn from EHM and my love for the Valorant Esports scene. The three key features I want to draw from my EHM inspiration are:
+1. Simulation quality over graphics
+2. Roster customization - allow easy roster uploads and creations
+3. Multiplayer features
+
 ## 🎮 Core Gameplay Loop
 
 1. **Team Management**

@@ -12,13 +12,17 @@ class Analytics:
     def __init__(self, mixpanel_token: str, environment: str = "development"):
         self.mp = mixpanel.Mixpanel(mixpanel_token)
         self.environment = environment
+        self.mixpanel_token = mixpanel_token
         
-        # Initialize Sentry for error tracking
-        sentry_sdk.init(
-            dsn="YOUR_SENTRY_DSN",
-            environment=environment,
-            traces_sample_rate=1.0,
-        )
+        # Initialize Sentry only if DSN is provided
+        if sentry_sdk.Hub.current.client is None and environment == "production":
+            dsn = "YOUR_SENTRY_DSN"  # Replace with actual DSN in production
+            if dsn and dsn != "YOUR_SENTRY_DSN":
+                sentry_sdk.init(
+                    dsn=dsn,
+                    environment=environment,
+                    traces_sample_rate=1.0,
+                )
 
     def track_game_event(
         self,
@@ -35,7 +39,8 @@ class Analytics:
             "environment": self.environment,
         })
         
-        self.mp.track(user_id, event_name, properties)
+        if self.mixpanel_token:
+            self.mp.track(user_id, event_name, properties)
 
     def track_match_result(
         self,
@@ -110,6 +115,9 @@ class Analytics:
         request: Request
     ):
         """Track user session information."""
+        if not self.mixpanel_token:
+            return  # Skip tracking if no token is configured
+        
         properties = {
             "session_id": session_id,
             "ip_address": request.client.host,

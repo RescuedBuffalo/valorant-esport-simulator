@@ -1,4 +1,6 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import axios from 'axios';
+import { config } from '../../config';
 
 interface Position {
   x: number;
@@ -24,6 +26,26 @@ interface RoundState {
   spikeTimer: number | null;
 }
 
+interface Round {
+  winner: 'team_a' | 'team_b';
+  economy: {
+    team_a: number;
+    team_b: number;
+  };
+  spike_planted: boolean;
+  clutch_player?: string;
+}
+
+interface MatchResult {
+  score: {
+    team_a: number;
+    team_b: number;
+  };
+  map: string;
+  duration: number;
+  rounds: Round[];
+}
+
 export interface MatchState {
   isActive: boolean;
   map: string;
@@ -35,6 +57,9 @@ export interface MatchState {
   players: Record<string, PlayerState>;
   spectatorMode: boolean;
   spectatedPlayerId: string | null;
+  currentMatch: MatchResult | null;
+  loading: boolean;
+  error: string | null;
 }
 
 const initialState: MatchState = {
@@ -54,7 +79,21 @@ const initialState: MatchState = {
   players: {},
   spectatorMode: false,
   spectatedPlayerId: null,
+  currentMatch: null,
+  loading: false,
+  error: null,
 };
+
+export const simulateMatch = createAsyncThunk(
+  'match/simulate',
+  async ({ teamA, teamB }: { teamA: string; teamB: string }) => {
+    const response = await axios.post(`${config.API_URL}/api/v1/matches/simulate`, {
+      team_a: teamA,
+      team_b: teamB,
+    });
+    return response.data;
+  }
+);
 
 const matchSlice = createSlice({
   name: 'match',
@@ -85,6 +124,25 @@ const matchSlice = createSlice({
       state.spectatorMode = action.payload.enabled;
       state.spectatedPlayerId = action.payload.playerId || null;
     },
+    clearMatch: (state) => {
+      state.currentMatch = null;
+      state.error = null;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(simulateMatch.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(simulateMatch.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentMatch = action.payload;
+      })
+      .addCase(simulateMatch.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message || 'Failed to simulate match';
+      });
   },
 });
 
@@ -95,6 +153,7 @@ export const {
   updateRoundState,
   updatePlayerState,
   setSpectatorMode,
+  clearMatch,
 } = matchSlice.actions;
 
 export default matchSlice.reducer; 

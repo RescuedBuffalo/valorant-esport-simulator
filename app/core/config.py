@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
     
     # Analytics
-    MIXPANEL_TOKEN: str = "your-mixpanel-token"  # Change in production
+    MIXPANEL_TOKEN: str = ""  # Add your token if using Mixpanel
     SENTRY_DSN: Optional[str] = None
     
     # Game Settings
