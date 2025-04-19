@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "valorant-sim"
+version = "0.1.0"
+description = "A Valorant esports management simulation game"
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.104.0"
+uvicorn = "^0.24.0"
+sqlalchemy = "^2.0.23"
+pydantic = "^2.4.2"
+alembic = "^1.12.1"
+psycopg2-binary = "^2.9.9"
+python-jose = "^3.3.0"
+passlib = "^1.7.4"
+python-multipart = "^0.0.6"
+mixpanel = "^4.10.0"
+sentry-sdk = "^1.32.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.4.3"
+black = "^23.10.1"
+isort = "^5.12.0"
+flake8 = "^6.1.0"
+mypy = "^1.6.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api" 

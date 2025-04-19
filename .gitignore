@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+.pytest_cache
+.env
+docs/
+.DS_Store
+.coverage
+.pytest_cache
+.pytest_cache/
+.pytest_cache/
+.pytest_cache/
+.pytest_cache/
+.pytest_cache/
