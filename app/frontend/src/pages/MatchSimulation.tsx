@@ -92,7 +92,7 @@ const MatchSimulation: React.FC = () => {
 
     // Clear existing player meshes
     sceneRef.current.children = sceneRef.current.children.filter(
-      child => !(child instanceof THREE.Mesh && child.userData.isPlayer)
+      (child: THREE.Object3D) => !(child instanceof THREE.Mesh && child.userData.isPlayer)
     );
 
     // Add player meshes
@@ -106,7 +106,9 @@ const MatchSimulation: React.FC = () => {
       mesh.rotation.y = player.rotation;
       mesh.userData.isPlayer = true;
       mesh.userData.playerId = id;
-      sceneRef.current.add(mesh);
+      if (sceneRef.current) {
+        sceneRef.current.add(mesh);
+      }
     });
   }, [matchState.players]);
 

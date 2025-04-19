@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import {
   Box,
   Button,
@@ -9,16 +9,14 @@ import {
   Select,
   TextField,
   Typography,
-  Paper,
+  SelectChangeEvent,
 } from '@mui/material';
-import { AppDispatch, RootState } from '../store';
+import { AppDispatch } from '../store';
 import { createTeam, fetchRegions } from '../store/slices/gameSlice';
+import type { Team } from '../store/slices/gameSlice';
 
 const TeamCreation: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
-  const regions = useSelector((state: RootState) => state.game.regions);
-  const loading = useSelector((state: RootState) => state.game.loading);
-
   const [teamName, setTeamName] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('');
 
@@ -28,58 +26,70 @@ const TeamCreation: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (teamName.trim()) {
-      await dispatch(createTeam({
-        name: teamName.trim(),
-        region: selectedRegion || undefined,
-      }));
-      setTeamName('');
-      setSelectedRegion('');
+    if (teamName.trim() && selectedRegion) {
+      try {
+        const newTeam: Omit<Team, 'id'> = {
+          name: teamName.trim(),
+          region: selectedRegion,
+          reputation: 50,
+          players: [],
+          stats: {
+            wins: 0,
+            losses: 0,
+            tournaments_won: 0,
+            prize_money: 0,
+          },
+        };
+        await dispatch(createTeam(newTeam as Team));
+        setTeamName('');
+        setSelectedRegion('');
+      } catch (error) {
+        console.error('Failed to create team:', error);
+      }
     }
   };
 
+  const handleRegionChange = (event: SelectChangeEvent<string>) => {
+    setSelectedRegion(event.target.value);
+  };
+
   return (
-    <Paper elevation={3} sx={{ p: 3, maxWidth: 400, mx: 'auto', mt: 4 }}>
-      <Typography variant="h5" gutterBottom>
+    <Box component="form" onSubmit={handleSubmit} sx={{ maxWidth: 400, mx: 'auto', mt: 4 }}>
+      <Typography variant="h4" gutterBottom>
         Create New Team
       </Typography>
-      <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
+      <FormControl fullWidth sx={{ mb: 2 }}>
         <TextField
-          fullWidth
           label="Team Name"
           value={teamName}
           onChange={(e) => setTeamName(e.target.value)}
-          margin="normal"
           required
         />
-        <FormControl fullWidth margin="normal">
-          <InputLabel>Region</InputLabel>
-          <Select
-            value={selectedRegion}
-            onChange={(e) => setSelectedRegion(e.target.value)}
-            label="Region"
-          >
-            <MenuItem value="">
-              <em>Random</em>
-            </MenuItem>
-            {regions.map((region) => (
-              <MenuItem key={region} value={region}>
-                {region}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Button
-          type="submit"
-          variant="contained"
-          fullWidth
-          sx={{ mt: 2 }}
-          disabled={loading || !teamName.trim()}
+      </FormControl>
+      <FormControl fullWidth sx={{ mb: 2 }}>
+        <InputLabel>Region</InputLabel>
+        <Select
+          value={selectedRegion}
+          onChange={handleRegionChange}
+          label="Region"
+          required
         >
-          {loading ? 'Creating...' : 'Create Team'}
-        </Button>
-      </Box>
-    </Paper>
+          {['NA', 'EU', 'APAC', 'LATAM', 'BR'].map((region) => (
+            <MenuItem key={region} value={region}>
+              {region}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <Button
+        type="submit"
+        variant="contained"
+        fullWidth
+        disabled={!teamName.trim() || !selectedRegion}
+      >
+        Create Team
+      </Button>
+    </Box>
   );
 };
 

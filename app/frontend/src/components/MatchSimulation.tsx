@@ -18,7 +18,9 @@ import { AppDispatch, RootState } from '../store';
 import { simulateMatch, clearMatch } from '../store/slices/gameSlice';
 import type { MatchResult } from '../store/slices/gameSlice';
 
-const RoundSummary: React.FC<{ round: any; index: number; teamA: string; teamB: string }> = ({
+type Round = MatchResult['rounds'][0];
+
+const RoundSummary: React.FC<{ round: Round; index: number; teamA: string; teamB: string }> = ({
   round,
   index,
   teamA,
@@ -45,7 +47,7 @@ const RoundSummary: React.FC<{ round: any; index: number; teamA: string; teamB: 
   </Card>
 );
 
-const MatchResult: React.FC<{
+const MatchResultDisplay: React.FC<{
   result: MatchResult;
   teamA: string;
   teamB: string;
@@ -172,7 +174,7 @@ const MatchSimulation: React.FC = () => {
         </Paper>
       ) : (
         <Box>
-          <MatchResult result={currentMatch} teamA={teamA} teamB={teamB} />
+          <MatchResultDisplay result={currentMatch} teamA={teamA} teamB={teamB} />
           <Button
             variant="contained"
             onClick={handleNewMatch}

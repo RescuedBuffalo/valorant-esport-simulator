@@ -16,13 +16,13 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => (
   <Card variant="outlined" sx={{ mb: 1 }}>
     <CardContent>
       <Typography variant="h6">
-        {player.gamerTag} ({player.firstName} {player.lastName})
+        {player.firstName} "{player.lastName}"
       </Typography>
-      <Typography color="textSecondary" gutterBottom>
-        {player.primaryRole} - {player.region}
+      <Typography color="text.secondary" gutterBottom>
+        {player.role} • {player.nationality} • Age: {player.age}
       </Typography>
       <Grid container spacing={1}>
-        {Object.entries(player.coreStats).map(([stat, value]) => (
+        {Object.entries(player.stats).map(([stat, value]) => (
           <Grid item xs={6} key={stat}>
             <Typography variant="body2">
               {stat}: {value.toFixed(1)}
@@ -35,13 +35,19 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => (
 );
 
 const TeamCard: React.FC<{ team: Team }> = ({ team }) => (
-  <Card sx={{ mb: 2 }}>
+  <Card sx={{ mb: 3 }}>
     <CardContent>
       <Typography variant="h5" gutterBottom>
         {team.name}
       </Typography>
-      <Typography color="textSecondary" gutterBottom>
-        Region: {team.region}
+      <Typography color="text.secondary" gutterBottom>
+        Region: {team.region} • Reputation: {team.reputation}
+      </Typography>
+      <Typography variant="subtitle1" gutterBottom>
+        Record: {team.stats.wins}W - {team.stats.losses}L
+      </Typography>
+      <Typography variant="subtitle1" gutterBottom>
+        Tournaments Won: {team.stats.tournaments_won}
       </Typography>
       <Box sx={{ mt: 2 }}>
         {team.players.map((player) => (
@@ -69,24 +75,22 @@ const TeamList: React.FC = () => {
     );
   }
 
+  if (teams.length === 0) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography>No teams created yet. Create your first team!</Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
         Teams
       </Typography>
-      {teams.length === 0 ? (
-        <Typography color="textSecondary">
-          No teams available. Create some teams to get started!
-        </Typography>
-      ) : (
-        <Grid container spacing={3}>
-          {teams.map((team) => (
-            <Grid item xs={12} md={6} key={team.name}>
-              <TeamCard team={team} />
-            </Grid>
-          ))}
-        </Grid>
-      )}
+      {teams.map((team) => (
+        <TeamCard key={team.id} team={team} />
+      ))}
     </Box>
   );
 };
