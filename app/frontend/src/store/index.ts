@@ -2,6 +2,9 @@ import { configureStore } from '@reduxjs/toolkit';
 import gameReducer from './slices/gameSlice';
 import teamReducer from './slices/teamSlice';
 import matchReducer from './slices/matchSlice';
+import logger from './middleware/logger';
+
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 const store = configureStore({
   reducer: {
@@ -9,6 +12,14 @@ const store = configureStore({
     team: teamReducer,
     match: matchReducer,
   },
+  middleware: (getDefaultMiddleware) => {
+    const middleware = getDefaultMiddleware();
+    if (isDevelopment) {
+      return middleware.concat(logger);
+    }
+    return middleware;
+  },
+  devTools: isDevelopment,
 });
 
 export type RootState = ReturnType<typeof store.getState>;
