@@ -26,6 +26,9 @@ describe('matchSlice', () => {
     players: {},
     spectatorMode: false,
     spectatedPlayerId: null,
+    currentMatch: null,
+    loading: false,
+    error: null,
   };
 
   const mockPlayerState = {

@@ -22,6 +22,10 @@ describe('gameSlice', () => {
     reputation: 50,
     currentDate: mockDate,
     facilityLevel: 1,
+    regions: [],
+    teams: [],
+    currentMatch: null,
+    loading: false,
   };
 
   it('should handle initial state', () => {
