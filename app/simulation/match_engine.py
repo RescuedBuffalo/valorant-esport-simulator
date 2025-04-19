@@ -52,6 +52,7 @@ class MatchEngine:
         self.round_number = 0
         self.score = {"team_a": 0, "team_b": 0}
         self.economy = {"team_a": 4000, "team_b": 4000}
+        self.player_credits = {}  # Track individual player credits
         self.weapon_factory = WeaponFactory()
         self.weapons = self.weapon_factory.create_weapon_catalog()
         self.loss_streaks = {"team_a": 0, "team_b": 0}
@@ -91,42 +92,75 @@ class MatchEngine:
             if isinstance(current_log['notes'], list):
                 current_log['notes'].append(f"{team_id} round type: {round_type} with {starting_economy} credits")
         
+        # Check if this is a pistol round (first of each half)
+        is_pistol_round = self.round_number == 0 or self.round_number == 12
+        
         for player in team:
+            player_id = player['id']
+            
+            # Get the player's available credits, defaulting to 800 for pistol rounds
+            if is_pistol_round:
+                player_credits = 800
+                self.player_credits[player_id] = 800
+            else:
+                player_credits = self.player_credits.get(player_id, 4000)
+            
             buy_prefs = BuyPreferences(player)
             
+            # Determine round type based on player's individual economy
+            player_round_type = round_type
+            if player_credits < 2000:
+                player_round_type = 'eco'
+            elif player_credits < 3900:  # Not enough for rifle + armor
+                player_round_type = 'force_buy'
+            
             # Only buy if we have enough money
-            if self.economy[team_id] > 0:
+            if player_credits > 0:
                 weapon_choice = buy_prefs.decide_buy(
-                    available_credits=self.economy[team_id],
+                    available_credits=player_credits,
                     team_economy=team_economy,
-                    round_type=round_type
+                    round_type=player_round_type
                 )
                 
                 # Apply the weapon cost
                 weapon_cost = self.weapons[weapon_choice].cost
                 
                 # Only subtract cost if we can afford it
-                if self.economy[team_id] >= weapon_cost:
-                    self.economy[team_id] -= weapon_cost
+                if player_credits >= weapon_cost:
+                    self.player_credits[player_id] = player_credits - weapon_cost
                     total_spent += weapon_cost
-                    weapons[player['id']] = weapon_choice
+                    weapons[player_id] = weapon_choice
                 else:
-                    # Default to classic if can't afford
-                    weapons[player['id']] = 'Classic'
+                    # Default to classic if can't afford chosen weapon
+                    weapons[player_id] = 'Classic'
                 
-                # Buy armor if can afford (1000 credits)
-                can_buy_armor = self.economy[team_id] >= 1000
-                if can_buy_armor and round_type != 'eco':
-                    self.economy[team_id] -= 1000
-                    total_spent += 1000
-                    armor[player['id']] = True
+                # Buy armor if can afford after weapon purchase
+                player_credits = self.player_credits[player_id]  # Updated credits after weapon purchase
+                armor_cost = 400 if is_pistol_round else 1000
+                
+                can_buy_armor = player_credits >= armor_cost
+                should_buy_armor = (player_round_type != 'eco' or 
+                                   (player_round_type == 'eco' and weapons[player_id] == 'Classic' and player_credits > armor_cost))
+                
+                if can_buy_armor and should_buy_armor:
+                    self.player_credits[player_id] = player_credits - armor_cost
+                    total_spent += armor_cost
+                    armor[player_id] = True
                 else:
-                    armor[player['id']] = False
+                    armor[player_id] = False
             else:
                 # If no money, default to classic
-                weapons[player['id']] = 'Classic'
-                armor[player['id']] = False
+                weapons[player_id] = 'Classic'
+                armor[player_id] = False
         
+        # Ensure all players have at least a classic
+        for player in team:
+            player_id = player['id']
+            if player_id not in weapons or not weapons[player_id]:
+                weapons[player_id] = 'Classic'
+            if player_id not in armor:
+                armor[player_id] = False
+            
         # Update the economy log for the current round if it exists
         if hasattr(self, 'economy_logs') and self.economy_logs:
             for log in reversed(self.economy_logs):
@@ -209,6 +243,9 @@ class MatchEngine:
             }
             self.economy_logs.append(economy_log)
             
+        # Check if this is a pistol round (first round of each half)
+        is_pistol_round = self.round_number == 0 or self.round_number == 12
+            
         # Buy phase
         team_a_weapons, team_a_armor = self._buy_phase(
             self.current_match.team_a,
@@ -241,6 +278,44 @@ class MatchEngine:
             "team_a": team_a_armor,
             "team_b": team_b_armor
         }
+        
+        # Compile player loadouts for the round
+        player_loadouts = {
+            "team_a": {},
+            "team_b": {}
+        }
+        
+        # Add loadout data for team A
+        for player in self.current_match.team_a:
+            player_id = player["id"]
+            player_loadouts["team_a"][player_id] = {
+                "weapon": round_weapons["team_a"].get(player_id, "Classic"),
+                "armor": round_armor["team_a"].get(player_id, False),
+                "total_spend": 0  # Will be calculated below
+            }
+            
+            # Calculate the spend
+            weapon_name = round_weapons["team_a"].get(player_id, "Classic")
+            weapon_cost = self.weapons[weapon_name].cost if weapon_name in self.weapons else 0
+            armor_cost = 1000 if round_armor["team_a"].get(player_id, False) else 0
+            total_spend = weapon_cost + armor_cost
+            player_loadouts["team_a"][player_id]["total_spend"] = total_spend
+        
+        # Add loadout data for team B
+        for player in self.current_match.team_b:
+            player_id = player["id"]
+            player_loadouts["team_b"][player_id] = {
+                "weapon": round_weapons["team_b"].get(player_id, "Classic"),
+                "armor": round_armor["team_b"].get(player_id, False),
+                "total_spend": 0  # Will be calculated below
+            }
+            
+            # Calculate the spend
+            weapon_name = round_weapons["team_b"].get(player_id, "Classic")
+            weapon_cost = self.weapons[weapon_name].cost if weapon_name in self.weapons else 0
+            armor_cost = 1000 if round_armor["team_b"].get(player_id, False) else 0
+            total_spend = weapon_cost + armor_cost
+            player_loadouts["team_b"][player_id]["total_spend"] = total_spend
         
         # Simulate pre-plant phase
         while len(alive_players["team_a"]) > 0 and len(alive_players["team_b"]) > 0 and not spike_planted:
@@ -292,6 +367,11 @@ class MatchEngine:
             self.economy_logs[-1]['spike_planted'] = spike_planted
             self.economy_logs[-1]['winner'] = winner
         
+        # Get player credits if we have a credits tracking mechanism
+        player_credits = {}
+        if hasattr(self, 'player_credits'):
+            player_credits = self.player_credits.copy()
+        
         return {
             "winner": winner,
             "economy": self.economy.copy(),
@@ -302,7 +382,10 @@ class MatchEngine:
                 "team_b": len(alive_players["team_b"])
             },
             "weapons": round_weapons,
-            "armor": round_armor
+            "armor": round_armor,
+            "player_loadouts": player_loadouts,
+            "player_credits": player_credits,
+            "is_pistol_round": is_pistol_round
         }
     
     def _determine_round_winner(self, alive_players: Dict[str, List[Dict[str, Any]]], spike_planted: bool) -> str:
@@ -385,12 +468,10 @@ class MatchEngine:
         if current_log and isinstance(current_log['notes'], list):
             current_log['notes'].append(f"{winning_team} wins and gets {win_reward} credits")
         
-        # Update winning team
+        # Update winning team - ensure economy doesn't exceed MAX_MONEY
         start_economy = self.economy[winning_team]
-        self.economy[winning_team] = min(
-            MAX_MONEY,
-            self.economy[winning_team] + win_reward
-        )
+        self.economy[winning_team] = min(MAX_MONEY, self.economy[winning_team] + win_reward)
+        
         # Record reward
         if current_log:
             current_log[f'{winning_team}_reward'] = win_reward
@@ -410,11 +491,13 @@ class MatchEngine:
             current_log['notes'].append(f"{losing_team} loss streak: {loss_streak}, gets {loss_bonus} credits bonus")
         
         # Ensure losing team has at least MIN_MONEY credits after the round
+        # and does not exceed MAX_MONEY
         start_economy = self.economy[losing_team]
         self.economy[losing_team] = max(
             MIN_MONEY,
             min(MAX_MONEY, self.economy[losing_team] + loss_bonus)
         )
+        
         # Record reward
         if current_log:
             current_log[f'{losing_team}_reward'] = loss_bonus
@@ -428,11 +511,12 @@ class MatchEngine:
         # Increment their loss streak
         self.loss_streaks[losing_team] += 1
         
-        # Add plant bonus if applicable
+        # Add plant bonus if applicable - ensure economy cap is respected
         if round_result.get('spike_planted'):
             planting_team = 'team_a' if self.round_number % 2 == 0 else 'team_b'
             start_economy = self.economy[planting_team]
             
+            # Apply plant bonus but don't exceed MAX_MONEY
             self.economy[planting_team] = min(
                 MAX_MONEY,
                 self.economy[planting_team] + PLANT_BONUS
@@ -451,8 +535,14 @@ class MatchEngine:
                 if self.economy[planting_team] == MAX_MONEY and start_economy + PLANT_BONUS > MAX_MONEY:
                     if isinstance(current_log['notes'], list):
                         current_log['notes'].append(f"{planting_team} hit max economy cap of {MAX_MONEY}")
+        
+        # Update player credits too
+        self._update_player_credits(winning_team, losing_team, round_result.get('spike_planted', False))
                 
-        # Record final economy values
+        # Record final economy values - ensure they don't exceed MAX_MONEY
+        self.economy['team_a'] = min(MAX_MONEY, self.economy['team_a'])
+        self.economy['team_b'] = min(MAX_MONEY, self.economy['team_b'])
+        
         if current_log:
             current_log['team_a_end'] = self.economy['team_a']
             current_log['team_b_end'] = self.economy['team_b']
@@ -460,6 +550,76 @@ class MatchEngine:
             # Convert notes to a single string at the end
             if isinstance(current_log['notes'], list):
                 current_log['notes'] = '; '.join(current_log['notes'])
+    
+    def _update_player_credits(self, winning_team: str, losing_team: str, spike_planted: bool):
+        """
+        Update individual player credits based on round results.
+        
+        Args:
+            winning_team: The team that won the round ('team_a' or 'team_b')
+            losing_team: The team that lost the round
+            spike_planted: Whether the spike was planted
+        """
+        # Valorant economy constants
+        MAX_MONEY = 9000  # Maximum credits per round
+        MIN_MONEY = 2000  # Minimum credits after round loss
+        
+        # Round win rewards
+        WIN_REWARD = 3000
+        LOSS_STREAK_BONUS = [1900, 2400, 2900, 3400, 3900]  # Increasing bonus for consecutive losses
+        PLANT_BONUS = 300
+        
+        # Get the loss streak for the losing team
+        loss_streak = min(self.loss_streaks.get(losing_team, 0), 4)  
+        loss_bonus = LOSS_STREAK_BONUS[loss_streak]
+        
+        # Check if this is the start of a new half - reset credits to 800 for pistol
+        is_new_half = self.round_number == 12
+        
+        # Get player lists based on team
+        winning_players = self.current_match.team_a if winning_team == 'team_a' else self.current_match.team_b
+        losing_players = self.current_match.team_b if winning_team == 'team_a' else self.current_match.team_a
+        
+        # Update credits for winning team players
+        for player in winning_players:
+            player_id = player.get('id')
+            if player_id in self.player_credits:
+                current_credits = self.player_credits[player_id]
+                
+                # For new half, set to 800 for pistol round
+                if is_new_half:
+                    self.player_credits[player_id] = 800
+                else:
+                    # Apply win reward, capped at MAX_MONEY
+                    self.player_credits[player_id] = min(MAX_MONEY, current_credits + WIN_REWARD)
+        
+        # Update credits for losing team players
+        for player in losing_players:
+            player_id = player.get('id')
+            if player_id in self.player_credits:
+                current_credits = self.player_credits[player_id]
+                
+                # For new half, set to 800 for pistol round
+                if is_new_half:
+                    self.player_credits[player_id] = 800
+                else:
+                    # Apply loss bonus, ensuring minimum credits
+                    self.player_credits[player_id] = max(
+                        MIN_MONEY,
+                        min(MAX_MONEY, current_credits + loss_bonus)
+                    )
+        
+        # Apply plant bonus if applicable
+        if spike_planted:
+            planting_team = 'team_a' if self.round_number % 24 < 12 else 'team_b'
+            planting_players = self.current_match.team_a if planting_team == 'team_a' else self.current_match.team_b
+            
+            # Give plant bonus to all players on planting team
+            for player in planting_players:
+                player_id = player.get('id')
+                if player_id in self.player_credits and not is_new_half:
+                    current_credits = self.player_credits[player_id]
+                    self.player_credits[player_id] = min(MAX_MONEY, current_credits + PLANT_BONUS)
     
     def _is_match_complete(self) -> bool:
         """
@@ -516,6 +676,11 @@ class MatchEngine:
         self.economy = {"team_a": 4000, "team_b": 4000}
         self.loss_streaks = {"team_a": 0, "team_b": 0}
         self.economy_logs = []
+        
+        # Initialize player credits - everyone starts with 800 for pistol round
+        self.player_credits = {}
+        for player in team_a + team_b:
+            self.player_credits[player["id"]] = 800
         
         # Log the initial economy state
         self.economy_logs.append({

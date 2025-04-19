@@ -179,6 +179,19 @@ async def simulate_match(match_req: MatchRequest, request: Request, db: Session 
             for i, round_data in enumerate(result["rounds"]):
                 if i in round_logs:
                     round_data["economy_log"] = round_logs[i]
+                
+                # Add player loadouts and credits if available
+                if "player_loadouts" in round_data:
+                    logger.debug(f"Round {i} has player loadouts")
+                else:
+                    logger.debug(f"Round {i} does not have player loadouts")
+                
+                # Ensure these fields are included in the response if they exist
+                for field in ["player_credits", "player_loadouts", "is_pistol_round"]:
+                    if field in round_data:
+                        continue
+                    else:
+                        logger.debug(f"Field {field} not present in round {i}")
             
         logger.info(f"Match data saved to database with ID {match_record.id}")
         

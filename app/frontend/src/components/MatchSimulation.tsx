@@ -20,6 +20,14 @@ import {
   Avatar,
   Chip,
   CircularProgress,
+  Collapse,
+  IconButton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from '@mui/material';
 import { AppDispatch, RootState } from '../store';
 import { clearMatch } from '../store/slices/gameSlice';
@@ -27,20 +35,63 @@ import { simulateMatchThunk } from '../store/thunks/gameThunks';
 import type { MatchResult } from '../store/slices/gameSlice';
 import ErrorBoundary from './ErrorBoundary';
 import PerformanceMonitor from '../utils/performance';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import EastIcon from '@mui/icons-material/East';
+import WestIcon from '@mui/icons-material/West';
+import ShieldIcon from '@mui/icons-material/Shield';
 
 type Round = MatchResult['rounds'][0];
 
-const RoundSummary: React.FC<{ round: Round; index: number; teamA: string; teamB: string }> = ({
+const RoundSummary: React.FC<{ 
+  round: Round; 
+  index: number; 
+  teamA: string; 
+  teamB: string;
+  teamAPlayers: any[];
+  teamBPlayers: any[];
+}> = ({
   round,
   index,
   teamA,
   teamB,
+  teamAPlayers,
+  teamBPlayers,
 }) => {
   const startTime = PerformanceMonitor.startMeasure('RoundSummary');
+  const [open, setOpen] = useState(false);
+  
+  // Determine which team is attacking (team_a attacks on rounds 0-11, team_b on 12-23)
+  const isTeamAAttacking = index < 12;
+  const attackingTeam = isTeamAAttacking ? 'team_a' : 'team_b';
+  const attackingTeamName = isTeamAAttacking ? teamA : teamB;
   
   // Get economy logs if available
   const economyLog = round.economy_log || null;
   
+  // Create a map of player IDs to names for easier lookup
+  const playerNameMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    
+    // Process team A players
+    teamAPlayers?.forEach(player => {
+      map[player.id] = `${player.firstName} ${player.lastName}`;
+    });
+    
+    // Process team B players
+    teamBPlayers?.forEach(player => {
+      map[player.id] = `${player.firstName} ${player.lastName}`;
+    });
+    
+    return map;
+  }, [teamAPlayers, teamBPlayers]);
+  
+  // Function to get player display name
+  const getPlayerName = (playerId: string): string => {
+    return playerNameMap[playerId] || playerId.substring(0, 8) + '...';
+  };
+
   try {
     const content = (
       <Grow in timeout={300 + index * 100}>
@@ -53,15 +104,67 @@ const RoundSummary: React.FC<{ round: Round; index: number; teamA: string; teamB
                 size="small"
                 sx={{ position: 'absolute', top: -12, left: 16 }}
               />
+              {round.is_pistol_round && (
+                <Chip 
+                  label="Pistol Round"
+                  color="secondary"
+                  size="small"
+                  sx={{ position: 'absolute', top: -12, left: 100 }}
+                />
+              )}
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
-              <Typography variant="h6" color={round.winner === 'team_a' ? 'primary' : 'text.secondary'}>
-                {teamA}
-              </Typography>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              mt: 2,
+              position: 'relative'
+            }}>
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                alignItems: 'center'
+              }}>
+                {isTeamAAttacking && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <EastIcon color="error" fontSize="small" />
+                    <Typography variant="caption" color="error.main" sx={{ ml: 0.5 }}>Attacking</Typography>
+                  </Box>
+                )}
+                <Typography variant="h6" color={round.winner === 'team_a' ? 'primary' : 'text.secondary'}>
+                  {teamA}
+                </Typography>
+                {!isTeamAAttacking && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                    <ShieldIcon color="info" fontSize="small" />
+                    <Typography variant="caption" color="info.main" sx={{ ml: 0.5 }}>Defending</Typography>
+                  </Box>
+                )}
+              </Box>
+              
               <Typography variant="body2" color="text.secondary">VS</Typography>
-              <Typography variant="h6" color={round.winner === 'team_b' ? 'primary' : 'text.secondary'}>
-                {teamB}
-              </Typography>
+              
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                alignItems: 'center'
+              }}>
+                {!isTeamAAttacking && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <EastIcon color="error" fontSize="small" />
+                    <Typography variant="caption" color="error.main" sx={{ ml: 0.5 }}>Attacking</Typography>
+                  </Box>
+                )}
+                <Typography variant="h6" color={round.winner === 'team_b' ? 'primary' : 'text.secondary'}>
+                  {teamB}
+                </Typography>
+                {isTeamAAttacking && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                    <ShieldIcon color="info" fontSize="small" />
+                    <Typography variant="caption" color="info.main" sx={{ ml: 0.5 }}>Defending</Typography>
+                  </Box>
+                )}
+              </Box>
             </Box>
             
             {/* Economy Visualization */}
@@ -164,7 +267,132 @@ const RoundSummary: React.FC<{ round: Round; index: number; teamA: string; teamB
                   </Typography>
                 </Box>
               )}
+
+              {/* Player Loadouts Collapse Button */}
+              {round.player_loadouts && (
+                <Box sx={{ width: '100%', mt: 1, textAlign: 'center' }}>
+                  <IconButton
+                    size="small"
+                    onClick={() => setOpen(!open)}
+                    aria-label="toggle player loadouts"
+                  >
+                    {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                    <Typography variant="caption" sx={{ ml: 1 }}>
+                      {open ? "Hide Player Details" : "Show Player Details"}
+                    </Typography>
+                  </IconButton>
+                </Box>
+              )}
             </Box>
+
+            {/* Player Loadouts Collapse Content */}
+            {round.player_loadouts && (
+              <Collapse in={open} timeout="auto" unmountOnExit>
+                <Box sx={{ mt: 2, borderTop: '1px dashed #ddd', pt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    {teamA} Players
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Player</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Weapon</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Armor</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Spent</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Credits</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {Object.entries(round.player_loadouts.team_a).map(([playerId, details]) => (
+                          <TableRow key={playerId} 
+                            sx={{ 
+                              '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.02)' },
+                              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
+                            }}
+                          >
+                            <TableCell component="th" scope="row">
+                              {getPlayerName(playerId)}
+                            </TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                {details.weapon === 'Classic' && details.total_spend === 0 && (
+                                  <Typography variant="caption" color="error" sx={{ mr: 1 }}>
+                                    (default)
+                                  </Typography>
+                                )}
+                                {details.weapon}
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">{details.armor ? "Yes" : "No"}</TableCell>
+                            <TableCell align="right" sx={{ 
+                              color: details.total_spend > 0 ? 'error.main' : 'text.disabled',
+                              fontWeight: details.total_spend > 0 ? 'medium' : 'normal'
+                            }}>
+                              ${details.total_spend}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: 'success.main', fontWeight: 'medium' }}>
+                              ${round.player_credits?.[playerId] || 0}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+
+                  <Typography variant="subtitle2" gutterBottom>
+                    {teamB} Players
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Player</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Weapon</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Armor</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Spent</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Credits</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {Object.entries(round.player_loadouts.team_b).map(([playerId, details]) => (
+                          <TableRow key={playerId}
+                            sx={{ 
+                              '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.02)' },
+                              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
+                            }}
+                          >
+                            <TableCell component="th" scope="row">
+                              {getPlayerName(playerId)}
+                            </TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                {details.weapon === 'Classic' && details.total_spend === 0 && (
+                                  <Typography variant="caption" color="error" sx={{ mr: 1 }}>
+                                    (default)
+                                  </Typography>
+                                )}
+                                {details.weapon}
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">{details.armor ? "Yes" : "No"}</TableCell>
+                            <TableCell align="right" sx={{ 
+                              color: details.total_spend > 0 ? 'error.main' : 'text.disabled',
+                              fontWeight: details.total_spend > 0 ? 'medium' : 'normal'
+                            }}>
+                              ${details.total_spend}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: 'success.main', fontWeight: 'medium' }}>
+                              ${round.player_credits?.[playerId] || 0}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Collapse>
+            )}
           </CardContent>
         </Card>
       </Grow>
@@ -182,7 +410,9 @@ const MatchResultDisplay: React.FC<{
   result: MatchResult;
   teamA: string;
   teamB: string;
-}> = ({ result, teamA, teamB }) => {
+  teamAPlayers: any[];
+  teamBPlayers: any[];
+}> = ({ result, teamA, teamB, teamAPlayers, teamBPlayers }) => {
   const startTime = PerformanceMonitor.startMeasure('MatchResultDisplay');
   
   try {
@@ -253,6 +483,8 @@ const MatchResultDisplay: React.FC<{
                 index={index}
                 teamA={teamA}
                 teamB={teamB}
+                teamAPlayers={teamAPlayers}
+                teamBPlayers={teamBPlayers}
               />
             </ErrorBoundary>
           ))}
@@ -314,6 +546,19 @@ const MatchSimulation: React.FC = () => {
   const [teamA, setTeamA] = useState('');
   const [teamB, setTeamB] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Get the selected teams' player data
+  const teamAPlayers = React.useMemo(() => {
+    if (!teamA) return [];
+    const team = teams.find(t => t.name === teamA);
+    return team?.players || [];
+  }, [teamA, teams]);
+
+  const teamBPlayers = React.useMemo(() => {
+    if (!teamB) return [];
+    const team = teams.find(t => t.name === teamB);
+    return team?.players || [];
+  }, [teamB, teams]);
 
   const handleSimulate = async () => {
     try {
@@ -447,7 +692,13 @@ const MatchSimulation: React.FC = () => {
           ) : (
             <Box>
               <ErrorBoundary>
-                <MatchResultDisplay result={currentMatch} teamA={teamA} teamB={teamB} />
+                <MatchResultDisplay 
+                  result={currentMatch} 
+                  teamA={teamA} 
+                  teamB={teamB} 
+                  teamAPlayers={teamAPlayers}
+                  teamBPlayers={teamBPlayers}
+                />
               </ErrorBoundary>
               <Box sx={{ textAlign: 'center', mt: 3 }}>
                 <Button

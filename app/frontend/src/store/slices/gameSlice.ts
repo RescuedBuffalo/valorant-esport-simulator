@@ -55,6 +55,20 @@ export interface MatchResult {
     };
     spike_planted?: boolean;
     clutch_player?: string;
+    player_credits?: Record<string, number>;
+    player_loadouts?: {
+      team_a: Record<string, {
+        weapon: string;
+        armor: boolean;
+        total_spend: number;
+      }>;
+      team_b: Record<string, {
+        weapon: string;
+        armor: boolean;
+        total_spend: number;
+      }>;
+    };
+    is_pistol_round?: boolean;
     economy_log?: {
       round_number: number;
       team_a_start: number;

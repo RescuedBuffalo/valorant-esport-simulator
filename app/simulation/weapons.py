@@ -350,11 +350,19 @@ class BuyPreferences:
             # Find the agent with highest proficiency
             primary_agent = max(agent_profs.items(), key=lambda x: x[1])[0] if agent_profs else None
         
+        # Always ensure players spend their credits - if they have enough for something better than a Classic
+        if round_type != 'pistol' and available_credits >= 150:
+            # Adjust round type to ensure players buy something
+            if round_type == 'eco' and available_credits >= 2000:
+                round_type = 'force_buy'
+            elif round_type == 'force_buy' and available_credits >= 3900:
+                round_type = 'full_buy'
+        
         # Execute buy strategy based on round type
         if round_type == 'pistol':
             return self._pistol_round_buy(available_credits, aim_rating, movement_rating, role, primary_agent)
         elif round_type == 'eco':
-            return self._eco_buy(available_credits, aim_rating, role, primary_agent)
+            return self._eco_buy(available_credits, aim_rating, movement_rating, role, primary_agent)
         elif round_type == 'force_buy':
             return self._force_buy(available_credits, aim_rating, movement_rating, role, primary_agent)
         elif round_type == 'half_buy':
@@ -364,40 +372,43 @@ class BuyPreferences:
     
     def _pistol_round_buy(self, credits: int, aim_rating: float, movement_rating: float, role: str, primary_agent: Optional[str]) -> str:
         """Logic for pistol round buying (limited to 800 credits)."""
-        # High aim players might prefer Ghost for headshots
-        if credits >= 500 and aim_rating > 75:
+        # High aim players with good aim prefer Ghost for headshots
+        if credits >= 500 and aim_rating > 70:
             return 'Ghost'
             
         # Sheriff for extremely confident aimers (risky)
-        if credits >= 800 and aim_rating > 90:
+        if credits >= 800 and aim_rating > 90 and role in ['duelist', 'initiator']:
             return 'Sheriff'
             
         # Frenzy for aggressive players/duelists
-        if credits >= 450 and (role == 'duelist' or movement_rating > 70):
+        if credits >= 450 and (role == 'duelist' or movement_rating > 65):
             return 'Frenzy'
             
         # Shorty for controllers or sentinels playing close angles
-        if credits >= 200 and role in ['sentinel', 'controller']:
+        if credits >= 150 and role in ['sentinel', 'controller'] and credits < 500:
+            return 'Shorty'
+            
+        # If player has credits but not enough for preferred weapon, get at least something
+        if credits >= 500:
+            return 'Ghost'
+        elif credits >= 450:
+            return 'Frenzy'
+        elif credits >= 150:
             return 'Shorty'
             
         # Classic is a solid default for saving credits
         return 'Classic'
     
-    def _eco_buy(self, credits: int, aim_rating: float, role: str, primary_agent: Optional[str]) -> str:
+    def _eco_buy(self, credits: int, aim_rating: float, movement_rating: float, role: str, primary_agent: Optional[str]) -> str:
         """Logic for eco round buying (minimal spending)."""
         # Get movement rating from player stats
-        movement_rating = self.player_stats['coreStats'].get('movement', 50)
         
-        # Save for next round
-        if credits < 400:
-            return 'Classic'  # Free pistol
-            
+        # Ensure players buy something if they have credits
         # Sheriff is good for high-skill players who can get headshots
-        if credits >= 800 and aim_rating > 80:
+        if credits >= 800 and aim_rating > 75:
             return 'Sheriff'
             
         # Ghost is a good medium option, only if we have 700+ credits
-        # (adjusted to match test expectations)
         if credits >= 700 and aim_rating > 60:
             return 'Ghost'
             
@@ -406,28 +417,43 @@ class BuyPreferences:
             return 'Shorty'
             
         # Frenzy for aggressive players - only if over 600 credits
-        # (adjusted to match test expectations)
         if credits >= 600 and ((role == 'Entry') or movement_rating > 70):
             return 'Frenzy'
+        
+        # Ensure players with some credits get something
+        if credits >= 450:
+            return 'Frenzy'
+        elif credits >= 300:
+            return 'Ghost'  # Classic + Light Armor is better
+        elif credits >= 150:
+            return 'Shorty'
             
         # Default to Classic if we can't afford upgrades or saving
         return 'Classic'
     
     def _force_buy(self, credits: int, aim_rating: float, movement_rating: float, role: str, primary_agent: Optional[str]) -> str:
         """Logic for force buy rounds (moderate spending despite economy)."""
-        # Try to get a Spectre if possible
+        # Try to get a Spectre if possible - great value weapon
         if credits >= 1600:
             return 'Spectre'
             
-        # Light rifles for players with savings
-        if credits >= 2050:
-            if aim_rating > 80:  # High precision players might prefer Guardian
-                return 'Guardian'
-            return 'Bulldog'  # Otherwise Bulldog is more forgiving
-            
-        # Marshal for players with good aim or who play Chamber
-        if credits >= 950 and ((aim_rating > 85) or primary_agent == 'Chamber'):
+        # Marshal for snipers with good aim
+        if credits >= 950 and ((aim_rating > 80) or primary_agent == 'Chamber'):
             return 'Marshal'
+            
+        # Bulldog - if enough credit but not enough for Spectre
+        if credits >= 2050:
+            return 'Bulldog'
+            
+        # Judge (shotgun) for close-range specialists 
+        if credits >= 1850 and role == 'duelist' and movement_rating > 75:
+            return 'Judge'
+            
+        # Light rifles for players with savings
+        if credits >= 2250:
+            if aim_rating > 80:
+                return 'Guardian'
+            return 'Bulldog'
             
         # Stinger is decent force buy option
         if credits >= 950:
@@ -436,12 +462,26 @@ class BuyPreferences:
         # Shotguns for close-range specialists
         if credits >= 850 and (role == 'Entry' or movement_rating > 80):
             return 'Bucky'
+        
+        # Ensure players buy something 
+        if credits >= 850:
+            return 'Bucky'
+        elif credits >= 500:
+            return 'Ghost'
             
         # Fall back to eco options if can't afford SMGs
-        return self._eco_buy(credits, aim_rating, role, primary_agent)
+        return self._eco_buy(credits, aim_rating, movement_rating, role, primary_agent)
     
     def _half_buy(self, credits: int, aim_rating: float, movement_rating: float, role: str, primary_agent: Optional[str]) -> str:
         """Logic for half buy rounds (medium spending)."""
+        # Outlaw is a good option for skilled players on half-buy rounds
+        if credits >= 2400 and aim_rating > 75 and role in ['duelist', 'initiator']:
+            return 'Outlaw'
+            
+        # Guardian for precision players
+        if credits >= 2250 and aim_rating > 75:
+            return 'Guardian'
+            
         # Spectre is the ideal half-buy weapon for many players
         if credits >= 1600:
             return 'Spectre'
@@ -453,6 +493,12 @@ class BuyPreferences:
         # Judge for close-range maps and agents
         if credits >= 1850 and (primary_agent in ['Raze', 'Jett', 'Reyna'] or movement_rating > 85):
             return 'Judge'
+        
+        # Ensure we get something if credits are available
+        if credits >= 950:
+            return 'Stinger'
+        elif credits >= 900:
+            return 'Marshal'
             
         # Fall back to force buy options
         return self._force_buy(credits, aim_rating, movement_rating, role, primary_agent)
@@ -464,7 +510,7 @@ class BuyPreferences:
             return 'Operator'
             
         # Odin for certain setups and roles
-        if credits >= 3200 and role in ['Controller', 'Sentinel']:
+        if credits >= 3200 and role in ['Controller', 'Sentinel'] and credits < 3900:
             return 'Odin'
             
         # Phantom vs Vandal preference based on playstyle and stats
@@ -477,13 +523,15 @@ class BuyPreferences:
             if movement_rating > aim_rating or utility_rating > aim_rating:
                 return 'Phantom'
                 
-            # Map-specific selection could be added here
-                
             # Default to player's role
             if role in ['Duelist', 'Initiator']:
                 return 'Vandal'  # Better for entry players one-tapping
             else:
                 return 'Phantom'  # Better for defenders/utility players
+        
+        # Outlaw for snipers if can't afford Operator
+        if credits >= 2400 and (primary_agent == 'Chamber' or aim_rating > 80):
+            return 'Outlaw'
                 
         # Fall back to light rifles
         if credits >= 2250:
@@ -494,6 +542,12 @@ class BuyPreferences:
         # Fall back to SMGs
         if credits >= 1600:
             return 'Spectre'
+        
+        # Ensure we get something if credits are available  
+        if credits >= 950:
+            return 'Stinger'
+        elif credits >= 900:
+            return 'Marshal'
             
         # Fall back to force buy if necessary
         return self._force_buy(credits, aim_rating, movement_rating, role, primary_agent) 
