@@ -56,6 +56,8 @@ class MatchEngine:
         self.weapon_factory = WeaponFactory()
         self.weapons = self.weapon_factory.create_weapon_catalog()
         self.loss_streaks = {"team_a": 0, "team_b": 0}
+        # Track player agent selections for the match
+        self.player_agents = {}
         
     def _determine_round_type(self, team_economy: int, team_loss_streak: int) -> str:
         """Determine if the team should eco, force buy, or full buy."""
@@ -291,7 +293,8 @@ class MatchEngine:
             player_loadouts["team_a"][player_id] = {
                 "weapon": round_weapons["team_a"].get(player_id, "Classic"),
                 "armor": round_armor["team_a"].get(player_id, False),
-                "total_spend": 0  # Will be calculated below
+                "total_spend": 0,  # Will be calculated below
+                "agent": self.player_agents.get(player_id, "Unknown")  # Add agent to loadout
             }
             
             # Calculate the spend
@@ -307,7 +310,8 @@ class MatchEngine:
             player_loadouts["team_b"][player_id] = {
                 "weapon": round_weapons["team_b"].get(player_id, "Classic"),
                 "armor": round_armor["team_b"].get(player_id, False),
-                "total_spend": 0  # Will be calculated below
+                "total_spend": 0,  # Will be calculated below
+                "agent": self.player_agents.get(player_id, "Unknown")  # Add agent to loadout
             }
             
             # Calculate the spend
@@ -385,7 +389,8 @@ class MatchEngine:
             "armor": round_armor,
             "player_loadouts": player_loadouts,
             "player_credits": player_credits,
-            "is_pistol_round": is_pistol_round
+            "is_pistol_round": is_pistol_round,
+            "player_agents": self.player_agents  # Include player agent selections in round result
         }
     
     def _determine_round_winner(self, alive_players: Dict[str, List[Dict[str, Any]]], spike_planted: bool) -> str:
@@ -682,6 +687,9 @@ class MatchEngine:
         for player in team_a + team_b:
             self.player_credits[player["id"]] = 800
         
+        # Initialize player agent selections for the match
+        self.player_agents = self._select_agents_for_teams(team_a, team_b)
+        
         # Log the initial economy state
         self.economy_logs.append({
             'round_number': self.round_number,
@@ -729,5 +737,120 @@ class MatchEngine:
             "duration": round(duration, 2),
             "map": map_name,
             "mvp": self._calculate_mvp(),
-            "economy_logs": self.economy_logs
-        } 
+            "economy_logs": self.economy_logs,
+            "player_agents": self.player_agents
+        }
+
+    def _select_agents_for_teams(self, team_a: List[Dict[str, Any]], team_b: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        Selects agents for all players based on their proficiencies.
+        
+        Args:
+            team_a: List of player dictionaries for team A
+            team_b: List of player dictionaries for team B
+            
+        Returns:
+            Dictionary mapping player IDs to their selected agents
+        """
+        player_agents = {}
+        
+        # Define required role categories to ensure team composition
+        required_roles = {
+            'duelist': 1,
+            'controller': 1,
+            'sentinel': 1,
+            'initiator': 1
+        }
+        
+        # Select agents for team A
+        team_a_selected_roles = {'duelist': 0, 'controller': 0, 'sentinel': 0, 'initiator': 0}
+        # Sort players by their role proficiency (highest first)
+        sorted_team_a = sorted(
+            team_a, 
+            key=lambda p: p.get('roleProficiencies', {}).get(p.get('primaryRole', 'Flex'), 0),
+            reverse=True
+        )
+        
+        for player in sorted_team_a:
+            player_id = player.get('id')
+            agent_profs = player.get('agentProficiencies', {})
+            primary_role = player.get('primaryRole', '').lower()
+            
+            # If this role is still needed for team composition
+            if primary_role in required_roles and team_a_selected_roles[primary_role] < required_roles[primary_role]:
+                # Get the best agent for this role
+                role_agents = [agent for agent, _ in sorted(
+                    [(agent, prof) for agent, prof in agent_profs.items() 
+                     if self._get_agent_role(agent).lower() == primary_role],
+                    key=lambda x: x[1], 
+                    reverse=True
+                )]
+                
+                if role_agents:
+                    player_agents[player_id] = role_agents[0]
+                    team_a_selected_roles[primary_role] += 1
+                    continue
+            
+            # If we don't need this role or player doesn't have agents in their primary role
+            # Just select their best agent
+            best_agent = max(agent_profs.items(), key=lambda x: x[1])[0] if agent_profs else "Jett"
+            player_agents[player_id] = best_agent
+        
+        # Select agents for team B (similar logic)
+        team_b_selected_roles = {'duelist': 0, 'controller': 0, 'sentinel': 0, 'initiator': 0}
+        sorted_team_b = sorted(
+            team_b, 
+            key=lambda p: p.get('roleProficiencies', {}).get(p.get('primaryRole', 'Flex'), 0),
+            reverse=True
+        )
+        
+        for player in sorted_team_b:
+            player_id = player.get('id')
+            agent_profs = player.get('agentProficiencies', {})
+            primary_role = player.get('primaryRole', '').lower()
+            
+            # If this role is still needed for team composition
+            if primary_role in required_roles and team_b_selected_roles[primary_role] < required_roles[primary_role]:
+                # Get the best agent for this role
+                role_agents = [agent for agent, _ in sorted(
+                    [(agent, prof) for agent, prof in agent_profs.items() 
+                     if self._get_agent_role(agent).lower() == primary_role],
+                    key=lambda x: x[1], 
+                    reverse=True
+                )]
+                
+                if role_agents:
+                    player_agents[player_id] = role_agents[0]
+                    team_b_selected_roles[primary_role] += 1
+                    continue
+            
+            # If we don't need this role or player doesn't have agents in their primary role
+            # Just select their best agent
+            best_agent = max(agent_profs.items(), key=lambda x: x[1])[0] if agent_profs else "Jett"
+            player_agents[player_id] = best_agent
+        
+        return player_agents
+
+    def _get_agent_role(self, agent: str) -> str:
+        """
+        Returns the role of a given agent.
+        
+        Args:
+            agent: Agent name
+            
+        Returns:
+            Role of the agent
+        """
+        roles = {
+            'Duelist': ['Jett', 'Phoenix', 'Raze', 'Reyna', 'Yoru', 'Neon', 'ISO'],
+            'Controller': ['Brimstone', 'Viper', 'Omen', 'Astra', 'Harbor', 'Clove'],
+            'Sentinel': ['Killjoy', 'Cypher', 'Sage', 'Chamber', 'Deadlock'],
+            'Initiator': ['Sova', 'Breach', 'Skye', 'KAY/O', 'Fade', 'Gekko']
+        }
+        
+        for role, agents in roles.items():
+            if agent in agents:
+                return role
+        
+        # Default if agent not found
+        return 'Duelist' 

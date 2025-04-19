@@ -61,13 +61,16 @@ export interface MatchResult {
         weapon: string;
         armor: boolean;
         total_spend: number;
+        agent?: string;
       }>;
       team_b: Record<string, {
         weapon: string;
         armor: boolean;
         total_spend: number;
+        agent?: string;
       }>;
     };
+    player_agents?: Record<string, string>;
     is_pistol_round?: boolean;
     economy_log?: {
       round_number: number;
@@ -106,6 +109,7 @@ export interface MatchResult {
     spike_planted: boolean;
     notes: string;
   }>;
+  player_agents?: Record<string, string>;
   match_id?: string;
 }
 

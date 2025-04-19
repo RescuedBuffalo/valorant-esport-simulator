@@ -201,17 +201,16 @@ const RoundSummary: React.FC<{
                     )}
                   </Box>
                 )}
-                
                 <LinearProgress 
                   variant="determinate" 
-                  value={Math.min(100, ((round.economy?.team_a || 0) / 9000) * 100)} 
-                  color={round.winner === 'team_a' ? 'primary' : 'secondary'}
-                  sx={{ mt: 0.5, height: 8, borderRadius: 1 }}
+                  value={Math.min(100, (round.economy?.team_a || 0) / 90)} 
+                  color={round.winner === 'team_a' ? 'success' : 'primary'}
+                  sx={{ mt: 0.5, height: 5, borderRadius: 1 }}
                 />
               </Box>
               
               {/* Team B Economy */}
-              <Box sx={{ mt: 2 }}>
+              <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="body2">{teamB}</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -240,159 +239,98 @@ const RoundSummary: React.FC<{
                     )}
                   </Box>
                 )}
-                
                 <LinearProgress 
                   variant="determinate" 
-                  value={Math.min(100, ((round.economy?.team_b || 0) / 9000) * 100)} 
-                  color={round.winner === 'team_b' ? 'primary' : 'secondary'}
-                  sx={{ mt: 0.5, height: 8, borderRadius: 1 }}
+                  value={Math.min(100, (round.economy?.team_b || 0) / 90)} 
+                  color={round.winner === 'team_b' ? 'success' : 'primary'}
+                  sx={{ mt: 0.5, height: 5, borderRadius: 1 }}
                 />
               </Box>
             </Box>
             
-            {/* Round Details */}
-            <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {round.spike_planted && (
-                <Chip size="small" label="Spike Planted" color="secondary" variant="outlined" />
-              )}
-              
-              {round.clutch_player && (
-                <Chip size="small" label="Clutch Play" color="primary" variant="outlined" />
-              )}
-              
-              {economyLog && economyLog.notes && (
-                <Box sx={{ width: '100%', mt: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
-                    {economyLog.notes}
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Player Loadouts Collapse Button */}
-              {round.player_loadouts && (
-                <Box sx={{ width: '100%', mt: 1, textAlign: 'center' }}>
-                  <IconButton
-                    size="small"
-                    onClick={() => setOpen(!open)}
-                    aria-label="toggle player loadouts"
-                  >
-                    {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-                    <Typography variant="caption" sx={{ ml: 1 }}>
-                      {open ? "Hide Player Details" : "Show Player Details"}
-                    </Typography>
-                  </IconButton>
-                </Box>
-              )}
+            {/* Player Details Button */}
+            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+              <Button
+                size="small"
+                onClick={() => setOpen(!open)}
+                endIcon={open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+              >
+                {open ? "Hide Player Details" : "View Player Details"}
+              </Button>
             </Box>
-
-            {/* Player Loadouts Collapse Content */}
-            {round.player_loadouts && (
-              <Collapse in={open} timeout="auto" unmountOnExit>
-                <Box sx={{ mt: 2, borderTop: '1px dashed #ddd', pt: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    {teamA} Players
-                  </Typography>
-                  <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
-                          <TableCell sx={{ fontWeight: 'bold' }}>Player</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold' }}>Weapon</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Armor</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Spent</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Credits</TableCell>
+            
+            {/* Player Details Drawer */}
+            <Collapse in={open} timeout="auto" unmountOnExit>
+              <Box sx={{ mt: 2, borderTop: '1px dashed #ddd', pt: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>Team {teamA} Loadouts</Typography>
+                <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Player</TableCell>
+                        <TableCell>Agent</TableCell>
+                        <TableCell>Weapon</TableCell>
+                        <TableCell>Armor</TableCell>
+                        <TableCell align="right">Spent</TableCell>
+                        <TableCell align="right">Credits</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {round.player_loadouts && Object.entries(round.player_loadouts.team_a).map(([playerId, loadout]) => (
+                        <TableRow key={playerId}>
+                          <TableCell sx={{ fontWeight: 'medium' }}>{getPlayerName(playerId)}</TableCell>
+                          <TableCell>{loadout.agent || "Unknown"}</TableCell>
+                          <TableCell sx={{ color: loadout.weapon === 'Classic' ? 'text.secondary' : 'inherit' }}>
+                            {loadout.weapon}
+                          </TableCell>
+                          <TableCell>{loadout.armor ? "Yes" : "No"}</TableCell>
+                          <TableCell align="right" sx={{ color: loadout.total_spend > 0 ? 'error.main' : 'inherit', fontWeight: loadout.total_spend > 0 ? 'bold' : 'normal' }}>
+                            {loadout.total_spend > 0 ? `-$${loadout.total_spend}` : '$0'}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                            ${round.player_credits?.[playerId] || '?'}
+                          </TableCell>
                         </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {Object.entries(round.player_loadouts.team_a).map(([playerId, details]) => (
-                          <TableRow key={playerId} 
-                            sx={{ 
-                              '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.02)' },
-                              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
-                            }}
-                          >
-                            <TableCell component="th" scope="row">
-                              {getPlayerName(playerId)}
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                {details.weapon === 'Classic' && details.total_spend === 0 && (
-                                  <Typography variant="caption" color="error" sx={{ mr: 1 }}>
-                                    (default)
-                                  </Typography>
-                                )}
-                                {details.weapon}
-                              </Box>
-                            </TableCell>
-                            <TableCell align="right">{details.armor ? "Yes" : "No"}</TableCell>
-                            <TableCell align="right" sx={{ 
-                              color: details.total_spend > 0 ? 'error.main' : 'text.disabled',
-                              fontWeight: details.total_spend > 0 ? 'medium' : 'normal'
-                            }}>
-                              ${details.total_spend}
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: 'success.main', fontWeight: 'medium' }}>
-                              ${round.player_credits?.[playerId] || 0}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-
-                  <Typography variant="subtitle2" gutterBottom>
-                    {teamB} Players
-                  </Typography>
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow sx={{ backgroundColor: 'rgba(0, 0, 0, 0.04)' }}>
-                          <TableCell sx={{ fontWeight: 'bold' }}>Player</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold' }}>Weapon</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Armor</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Spent</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>Credits</TableCell>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                
+                <Typography variant="subtitle2" gutterBottom>Team {teamB} Loadouts</Typography>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Player</TableCell>
+                        <TableCell>Agent</TableCell>
+                        <TableCell>Weapon</TableCell>
+                        <TableCell>Armor</TableCell>
+                        <TableCell align="right">Spent</TableCell>
+                        <TableCell align="right">Credits</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {round.player_loadouts && Object.entries(round.player_loadouts.team_b).map(([playerId, loadout]) => (
+                        <TableRow key={playerId}>
+                          <TableCell sx={{ fontWeight: 'medium' }}>{getPlayerName(playerId)}</TableCell>
+                          <TableCell>{loadout.agent || "Unknown"}</TableCell>
+                          <TableCell sx={{ color: loadout.weapon === 'Classic' ? 'text.secondary' : 'inherit' }}>
+                            {loadout.weapon}
+                          </TableCell>
+                          <TableCell>{loadout.armor ? "Yes" : "No"}</TableCell>
+                          <TableCell align="right" sx={{ color: loadout.total_spend > 0 ? 'error.main' : 'inherit', fontWeight: loadout.total_spend > 0 ? 'bold' : 'normal' }}>
+                            {loadout.total_spend > 0 ? `-$${loadout.total_spend}` : '$0'}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                            ${round.player_credits?.[playerId] || '?'}
+                          </TableCell>
                         </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {Object.entries(round.player_loadouts.team_b).map(([playerId, details]) => (
-                          <TableRow key={playerId}
-                            sx={{ 
-                              '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.02)' },
-                              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
-                            }}
-                          >
-                            <TableCell component="th" scope="row">
-                              {getPlayerName(playerId)}
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                {details.weapon === 'Classic' && details.total_spend === 0 && (
-                                  <Typography variant="caption" color="error" sx={{ mr: 1 }}>
-                                    (default)
-                                  </Typography>
-                                )}
-                                {details.weapon}
-                              </Box>
-                            </TableCell>
-                            <TableCell align="right">{details.armor ? "Yes" : "No"}</TableCell>
-                            <TableCell align="right" sx={{ 
-                              color: details.total_spend > 0 ? 'error.main' : 'text.disabled',
-                              fontWeight: details.total_spend > 0 ? 'medium' : 'normal'
-                            }}>
-                              ${details.total_spend}
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: 'success.main', fontWeight: 'medium' }}>
-                              ${round.player_credits?.[playerId] || 0}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </Box>
-              </Collapse>
-            )}
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            </Collapse>
           </CardContent>
         </Card>
       </Grow>
@@ -472,6 +410,87 @@ const MatchResultDisplay: React.FC<{
                 </Typography>
               </Box>
             </Box>
+            
+            {/* Agent Composition Summary */}
+            {result.player_agents && (
+              <Box sx={{ mt: 3, mb: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  Agent Composition
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  {/* Team A Agents */}
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      {teamA}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {teamAPlayers.map(player => {
+                        const agentName = result.player_agents?.[player.id] || 'Unknown';
+                        return (
+                          <Chip 
+                            key={player.id}
+                            label={`${agentName}`}
+                            size="small"
+                            sx={{ 
+                              backgroundColor: 
+                                agentName.match(/Jett|Phoenix|Raze|Reyna|Yoru|Neon|ISO/i) ? 'rgba(244, 67, 54, 0.1)' : // Duelist
+                                agentName.match(/Brimstone|Viper|Omen|Astra|Harbor|Clove/i) ? 'rgba(33, 150, 243, 0.1)' : // Controller
+                                agentName.match(/Killjoy|Cypher|Sage|Chamber|Deadlock/i) ? 'rgba(76, 175, 80, 0.1)' : // Sentinel
+                                agentName.match(/Sova|Breach|Skye|KAY\/O|Fade|Gekko/i) ? 'rgba(255, 152, 0, 0.1)' : // Initiator
+                                'rgba(158, 158, 158, 0.1)',
+                              borderColor:
+                                agentName.match(/Jett|Phoenix|Raze|Reyna|Yoru|Neon|ISO/i) ? 'rgba(244, 67, 54, 0.5)' : // Duelist
+                                agentName.match(/Brimstone|Viper|Omen|Astra|Harbor|Clove/i) ? 'rgba(33, 150, 243, 0.5)' : // Controller
+                                agentName.match(/Killjoy|Cypher|Sage|Chamber|Deadlock/i) ? 'rgba(76, 175, 80, 0.5)' : // Sentinel
+                                agentName.match(/Sova|Breach|Skye|KAY\/O|Fade|Gekko/i) ? 'rgba(255, 152, 0, 0.5)' : // Initiator
+                                'rgba(158, 158, 158, 0.5)',
+                              border: '1px solid',
+                              mb: 1,
+                              position: 'relative'
+                            }}
+                          />
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                  
+                  {/* Team B Agents */}
+                  <Box sx={{ flex: 1, textAlign: 'right' }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      {teamB}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'flex-end' }}>
+                      {teamBPlayers.map(player => {
+                        const agentName = result.player_agents?.[player.id] || 'Unknown';
+                        return (
+                          <Chip 
+                            key={player.id}
+                            label={`${agentName}`}
+                            size="small"
+                            sx={{ 
+                              backgroundColor: 
+                                agentName.match(/Jett|Phoenix|Raze|Reyna|Yoru|Neon|ISO/i) ? 'rgba(244, 67, 54, 0.1)' : // Duelist
+                                agentName.match(/Brimstone|Viper|Omen|Astra|Harbor|Clove/i) ? 'rgba(33, 150, 243, 0.1)' : // Controller
+                                agentName.match(/Killjoy|Cypher|Sage|Chamber|Deadlock/i) ? 'rgba(76, 175, 80, 0.1)' : // Sentinel
+                                agentName.match(/Sova|Breach|Skye|KAY\/O|Fade|Gekko/i) ? 'rgba(255, 152, 0, 0.1)' : // Initiator
+                                'rgba(158, 158, 158, 0.1)',
+                              borderColor:
+                                agentName.match(/Jett|Phoenix|Raze|Reyna|Yoru|Neon|ISO/i) ? 'rgba(244, 67, 54, 0.5)' : // Duelist
+                                agentName.match(/Brimstone|Viper|Omen|Astra|Harbor|Clove/i) ? 'rgba(33, 150, 243, 0.5)' : // Controller
+                                agentName.match(/Killjoy|Cypher|Sage|Chamber|Deadlock/i) ? 'rgba(76, 175, 80, 0.5)' : // Sentinel
+                                agentName.match(/Sova|Breach|Skye|KAY\/O|Fade|Gekko/i) ? 'rgba(255, 152, 0, 0.5)' : // Initiator
+                                'rgba(158, 158, 158, 0.5)',
+                              border: '1px solid',
+                              mb: 1
+                            }}
+                          />
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                </Box>
+              </Box>
+            )}
           </Paper>
           <Typography variant="h6" gutterBottom sx={{ pl: 2 }}>
             Round Summary
