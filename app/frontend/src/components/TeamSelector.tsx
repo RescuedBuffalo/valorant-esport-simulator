@@ -25,7 +25,7 @@ const TeamSelector: React.FC<TeamSelectorProps> = ({
   onChange,
   otherTeam,
 }) => {
-  const teams = useSelector((state: RootState) => state.game.teams);
+  const teams = useSelector((state: RootState) => state.game.teams || []);
 
   const handleChange = (event: SelectChangeEvent<string>) => {
     onChange(event.target.value);
@@ -39,7 +39,7 @@ const TeamSelector: React.FC<TeamSelectorProps> = ({
         onChange={handleChange}
         label={label}
       >
-        {teams.map((team) => (
+        {Array.isArray(teams) && teams.map((team) => (
           <MenuItem
             key={team.id}
             value={team.name}

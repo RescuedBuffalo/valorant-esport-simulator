@@ -1,16 +1,30 @@
 """
 Match simulation engine for Valorant matches.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 import random
 import math
+import uuid
 
-from app.models.match import SimMatch, MatchPerformance
-from app.models.player import Player
-from app.models.team import Team
-from .weapons import WeaponFactory, BuyPreferences, WeaponType
+# Simple simulation models
+@dataclass
+class SimMatch:
+    team_a: List[Dict[str, Any]]
+    team_b: List[Dict[str, Any]]
+    map_name: str
+    performances: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class MatchPerformance:
+    player_id: str
+    kills: int = 0
+    deaths: int = 0
+    assists: int = 0
+    first_bloods: int = 0
+    clutches: int = 0
+    damage: int = 0
 
 @dataclass
 class RoundState:
@@ -30,6 +44,8 @@ class RoundState:
     team_a_armor: Dict[str, bool]  # player_id: has_armor
     team_b_armor: Dict[str, bool]
 
+from .weapons import WeaponFactory, BuyPreferences, WeaponType
+
 class MatchEngine:
     def __init__(self):
         self.current_match: Optional[SimMatch] = None
@@ -38,6 +54,7 @@ class MatchEngine:
         self.economy = {"team_a": 4000, "team_b": 4000}
         self.weapon_factory = WeaponFactory()
         self.weapons = self.weapon_factory.create_weapon_catalog()
+        self.loss_streaks = {"team_a": 0, "team_b": 0}
         
     def _determine_round_type(self, team_economy: int, team_loss_streak: int) -> str:
         """Determine if the team should eco, force buy, or full buy."""
@@ -64,26 +81,63 @@ class MatchEngine:
         armor = {}
         round_type = self._determine_round_type(team_economy, team_loss_streak)
         
+        # Track team spending for economy analysis
+        starting_economy = self.economy[team_id]
+        total_spent = 0
+        
+        # Log the round type for debugging
+        if hasattr(self, 'economy_logs') and self.economy_logs:
+            current_log = self.economy_logs[-1]
+            if isinstance(current_log['notes'], list):
+                current_log['notes'].append(f"{team_id} round type: {round_type} with {starting_economy} credits")
+        
         for player in team:
             buy_prefs = BuyPreferences(player)
-            weapon_choice = buy_prefs.decide_buy(
-                available_credits=self.economy[team_id],
-                team_economy=team_economy,
-                round_type=round_type
-            )
             
-            # Apply the weapon cost
-            weapon_cost = self.weapons[weapon_choice].cost
-            self.economy[team_id] -= weapon_cost
-            weapons[player['id']] = weapon_choice
-            
-            # Buy armor if can afford (1000 credits)
-            can_buy_armor = self.economy[team_id] >= 1000
-            if can_buy_armor and round_type != 'eco':
-                self.economy[team_id] -= 1000
-                armor[player['id']] = True
+            # Only buy if we have enough money
+            if self.economy[team_id] > 0:
+                weapon_choice = buy_prefs.decide_buy(
+                    available_credits=self.economy[team_id],
+                    team_economy=team_economy,
+                    round_type=round_type
+                )
+                
+                # Apply the weapon cost
+                weapon_cost = self.weapons[weapon_choice].cost
+                
+                # Only subtract cost if we can afford it
+                if self.economy[team_id] >= weapon_cost:
+                    self.economy[team_id] -= weapon_cost
+                    total_spent += weapon_cost
+                    weapons[player['id']] = weapon_choice
+                else:
+                    # Default to classic if can't afford
+                    weapons[player['id']] = 'Classic'
+                
+                # Buy armor if can afford (1000 credits)
+                can_buy_armor = self.economy[team_id] >= 1000
+                if can_buy_armor and round_type != 'eco':
+                    self.economy[team_id] -= 1000
+                    total_spent += 1000
+                    armor[player['id']] = True
+                else:
+                    armor[player['id']] = False
             else:
+                # If no money, default to classic
+                weapons[player['id']] = 'Classic'
                 armor[player['id']] = False
+        
+        # Update the economy log for the current round if it exists
+        if hasattr(self, 'economy_logs') and self.economy_logs:
+            for log in reversed(self.economy_logs):
+                if log['round_number'] == self.round_number:
+                    log[f'{team_id}_spend'] = total_spent
+                    # Update notes
+                    if isinstance(log['notes'], str):
+                        log['notes'] = log['notes'] + f'; {team_id} spent {total_spent} credits in buy phase'
+                    else:
+                        log['notes'].append(f"{team_id} spent {total_spent} credits in buy phase")
+                    break
         
         return weapons, armor
     
@@ -143,6 +197,18 @@ class MatchEngine:
     
     def _simulate_round(self) -> Dict[str, Any]:
         """Simulates a single round of play."""
+        # Initialize the economy log at the start of the round
+        if hasattr(self, 'economy_logs'):
+            economy_log = {
+                'round_number': self.round_number,
+                'team_a_start': self.economy['team_a'],
+                'team_b_start': self.economy['team_b'],
+                'team_a_spend': 0,
+                'team_b_spend': 0,
+                'notes': []
+            }
+            self.economy_logs.append(economy_log)
+            
         # Buy phase
         team_a_weapons, team_a_armor = self._buy_phase(
             self.current_match.team_a,
@@ -221,6 +287,11 @@ class MatchEngine:
         # Determine round winner
         winner = self._determine_round_winner(alive_players, spike_planted)
         
+        # Record spike plant status for economy
+        if hasattr(self, 'economy_logs') and self.economy_logs:
+            self.economy_logs[-1]['spike_planted'] = spike_planted
+            self.economy_logs[-1]['winner'] = winner
+        
         return {
             "winner": winner,
             "economy": self.economy.copy(),
@@ -273,7 +344,7 @@ class MatchEngine:
         """
         # Valorant economy constants
         MAX_MONEY = 9000  # Maximum credits per round
-        MIN_MONEY = 1000  # Minimum credits after round loss (changed from 0)
+        MIN_MONEY = 2000  # Minimum credits after round loss (changed from 1000)
         
         # Round win rewards
         WIN_REWARD = 3000
@@ -283,15 +354,50 @@ class MatchEngine:
         # Track loss streaks if not already initialized
         if not hasattr(self, 'loss_streaks'):
             self.loss_streaks = {'team_a': 0, 'team_b': 0}
+            
+        # Find the current economy log (should be the last one)
+        current_log = None
+        if hasattr(self, 'economy_logs') and self.economy_logs:
+            for log in reversed(self.economy_logs):
+                if log['round_number'] == self.round_number:
+                    current_log = log
+                    break
+        
+        # If no log was found, create a new one (shouldn't happen with the fixes)
+        if not current_log and hasattr(self, 'economy_logs'):
+            current_log = {
+                'round_number': self.round_number,
+                'team_a_start': self.economy['team_a'],
+                'team_b_start': self.economy['team_b'],
+                'team_a_spend': 0,
+                'team_b_spend': 0,
+                'winner': round_result['winner'],
+                'spike_planted': round_result.get('spike_planted', False),
+                'notes': []
+            }
+            self.economy_logs.append(current_log)
         
         winning_team = round_result['winner']
         losing_team = 'team_b' if winning_team == 'team_a' else 'team_a'
         
+        # Calculate win reward
+        win_reward = WIN_REWARD
+        if current_log and isinstance(current_log['notes'], list):
+            current_log['notes'].append(f"{winning_team} wins and gets {win_reward} credits")
+        
         # Update winning team
+        start_economy = self.economy[winning_team]
         self.economy[winning_team] = min(
             MAX_MONEY,
-            self.economy[winning_team] + WIN_REWARD
+            self.economy[winning_team] + win_reward
         )
+        # Record reward
+        if current_log:
+            current_log[f'{winning_team}_reward'] = win_reward
+            if self.economy[winning_team] == MAX_MONEY and start_economy + win_reward > MAX_MONEY:
+                if isinstance(current_log['notes'], list):
+                    current_log['notes'].append(f"{winning_team} hit max economy cap of {MAX_MONEY}")
+            
         # Reset their loss streak
         self.loss_streaks[winning_team] = 0
         
@@ -300,21 +406,60 @@ class MatchEngine:
         loss_streak = min(self.loss_streaks[losing_team], 4)
         loss_bonus = LOSS_STREAK_BONUS[loss_streak]
         
+        if current_log and isinstance(current_log['notes'], list):
+            current_log['notes'].append(f"{losing_team} loss streak: {loss_streak}, gets {loss_bonus} credits bonus")
+        
         # Ensure losing team has at least MIN_MONEY credits after the round
+        start_economy = self.economy[losing_team]
         self.economy[losing_team] = max(
             MIN_MONEY,
             min(MAX_MONEY, self.economy[losing_team] + loss_bonus)
         )
+        # Record reward
+        if current_log:
+            current_log[f'{losing_team}_reward'] = loss_bonus
+            if self.economy[losing_team] == MIN_MONEY and start_economy + loss_bonus < MIN_MONEY:
+                if isinstance(current_log['notes'], list):
+                    current_log['notes'].append(f"{losing_team} hit min economy floor of {MIN_MONEY}")
+            elif self.economy[losing_team] == MAX_MONEY and start_economy + loss_bonus > MAX_MONEY:
+                if isinstance(current_log['notes'], list):
+                    current_log['notes'].append(f"{losing_team} hit max economy cap of {MAX_MONEY}")
+            
         # Increment their loss streak
         self.loss_streaks[losing_team] += 1
         
         # Add plant bonus if applicable
         if round_result.get('spike_planted'):
             planting_team = 'team_a' if self.round_number % 2 == 0 else 'team_b'
+            start_economy = self.economy[planting_team]
+            
             self.economy[planting_team] = min(
                 MAX_MONEY,
                 self.economy[planting_team] + PLANT_BONUS
             )
+            
+            if current_log and isinstance(current_log['notes'], list):
+                current_log['notes'].append(f"{planting_team} gets {PLANT_BONUS} credits for planting the spike")
+            
+            # Update or add plant bonus to rewards
+            if current_log:
+                if f'{planting_team}_reward' in current_log:
+                    current_log[f'{planting_team}_reward'] += PLANT_BONUS
+                else:
+                    current_log[f'{planting_team}_reward'] = PLANT_BONUS
+                    
+                if self.economy[planting_team] == MAX_MONEY and start_economy + PLANT_BONUS > MAX_MONEY:
+                    if isinstance(current_log['notes'], list):
+                        current_log['notes'].append(f"{planting_team} hit max economy cap of {MAX_MONEY}")
+                
+        # Record final economy values
+        if current_log:
+            current_log['team_a_end'] = self.economy['team_a']
+            current_log['team_b_end'] = self.economy['team_b']
+            
+            # Convert notes to a single string at the end
+            if isinstance(current_log['notes'], list):
+                current_log['notes'] = '; '.join(current_log['notes'])
     
     def _is_match_complete(self) -> bool:
         """
@@ -367,8 +512,26 @@ class MatchEngine:
         self.current_match = SimMatch(team_a, team_b, map_name)
         self.round_number = 0
         self.score = {"team_a": 0, "team_b": 0}
+        # Initialize economy to 4,000 credits per team at the start of the match
         self.economy = {"team_a": 4000, "team_b": 4000}
         self.loss_streaks = {"team_a": 0, "team_b": 0}
+        self.economy_logs = []
+        
+        # Log the initial economy state
+        self.economy_logs.append({
+            'round_number': self.round_number,
+            'team_a_start': self.economy['team_a'],
+            'team_b_start': self.economy['team_b'],
+            'team_a_spend': 0,
+            'team_b_spend': 0,
+            'team_a_end': self.economy['team_a'],
+            'team_b_end': self.economy['team_b'],
+            'team_a_reward': 0,
+            'team_b_reward': 0,
+            'winner': None,
+            'spike_planted': False,
+            'notes': ["Match start: Each team begins with 4000 credits"]
+        })
         
         rounds = []
         start_time = datetime.now()
@@ -390,10 +553,16 @@ class MatchEngine:
         
         duration = (datetime.now() - start_time).total_seconds() / 60
         
+        # Convert all note lists to strings for consistent output
+        for log in self.economy_logs:
+            if isinstance(log['notes'], list):
+                log['notes'] = '; '.join(log['notes'])
+        
         return {
             "score": self.score,
             "rounds": rounds,
             "duration": round(duration, 2),
             "map": map_name,
-            "mvp": self._calculate_mvp()
+            "mvp": self._calculate_mvp(),
+            "economy_logs": self.economy_logs
         } 

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     
+    # API Configuration
+    API_URL: str = "http://localhost:8000"
+    
     # Database
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_USER: str = "postgres"
@@ -25,7 +28,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
     
     # Analytics
-    MIXPANEL_TOKEN: str = ""  # Add your token if using Mixpanel
+    MIXPANEL_TOKEN: Optional[str] = None  # Optional Mixpanel integration
     SENTRY_DSN: Optional[str] = None
     
     # Game Settings
