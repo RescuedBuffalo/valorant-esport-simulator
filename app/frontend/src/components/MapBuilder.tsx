@@ -490,9 +490,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     try {
       // Save locally first to ensure we have the map data
       const mapJson = JSON.stringify(dataToSend, null, 2);
-      localStorage.setItem(`map_${mapName.toLowerCase().replace(/\s+/g, '_')}`, mapJson);
+      const mapId = mapName.toLowerCase().replace(/\s+/g, '_');
+      localStorage.setItem(`map_${mapId}`, mapJson);
+      console.log(`Map saved to localStorage with key: map_${mapId}`);
       
       // Try to save to server
+      console.log('Attempting to save map to server:', dataToSend);
+      
       const response = await fetch('/api/maps/', {
         method: 'POST',
         headers: {
@@ -501,13 +505,24 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
         body: JSON.stringify(dataToSend),
       });
       
-      const result = await response.json();
+      console.log('Server response status:', response.status);
+      const responseText = await response.text();
+      console.log('Server response text:', responseText);
+      
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Error parsing server response:', e);
+        result = { success: false, error: 'Invalid server response' };
+      }
       
       if (result.success) {
+        console.log('Map successfully saved to server');
         showSnackbar('Map saved successfully to server', 'success');
       } else {
         console.warn('Server save failed, but map saved locally:', result.error);
-        showSnackbar('Map saved locally (server save failed)', 'warning');
+        showSnackbar(`Map saved locally (server error: ${result.error || 'Unknown error'})`, 'warning');
       }
       
       // Also download a local copy
@@ -527,7 +542,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       }
     } catch (error) {
       console.error('Error saving map:', error);
-      showSnackbar('Saved locally (server connection failed)', 'warning');
+      showSnackbar(`Saved locally (server error: ${error instanceof Error ? error.message : 'Connection failed'})`, 'warning');
       
       // Make sure to call the callback so we return to maps view
       if (onSaveComplete) {

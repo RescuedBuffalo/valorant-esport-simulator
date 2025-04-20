@@ -63,27 +63,41 @@ const Maps = () => {
         
         // Get local maps first
         const localMaps = loadLocalMaps();
+        console.log('Local maps found:', localMaps.length, localMaps.map(m => m.name));
         let allMaps = [...localMaps];
         
         // Try to fetch from server
+        let serverMaps: MapInfo[] = [];
         try {
+          console.log('Fetching maps from server...');
           const response = await fetch('/api/maps/');
+          console.log('Server response status:', response.status);
           const data = await response.json();
+          console.log('Server maps data:', data);
           
           if (data.maps && Object.keys(data.maps).length > 0) {
-            const serverMaps = Object.keys(data.maps).map(mapName => ({
+            serverMaps = Object.keys(data.maps).map(mapName => ({
               id: mapName.toLowerCase().replace(/\s+/g, '_'),
               name: mapName,
               source: 'server' as const
             }));
+            console.log('Server maps found:', serverMaps.length, serverMaps.map(m => m.name));
             
             // Merge server maps with local maps, preferring server versions if both exist
             const existingIds = new Set(allMaps.map(m => m.id));
             const uniqueServerMaps = serverMaps.filter(m => !existingIds.has(m.id));
             allMaps = [...allMaps, ...uniqueServerMaps];
+          } else {
+            console.log('No maps found on server or invalid response format');
           }
         } catch (error) {
           console.warn('Error fetching maps from server, using local maps only:', error);
+        }
+        
+        // Check which local maps exist on server for reference
+        for (const localMap of localMaps) {
+          const existsOnServer = serverMaps.some(m => m.id === localMap.id);
+          console.log(`Map "${localMap.name}" (${localMap.id}): ${existsOnServer ? 'exists on server' : 'local only'}`);
         }
         
         setAvailableMaps(allMaps);
@@ -102,6 +116,34 @@ const Maps = () => {
     fetchMaps();
   }, [isBuilderMode]); // Re-run when leaving builder mode to refresh maps
   
+  // Check if a map with given ID exists on the server
+  const checkMapExistsOnServer = async (mapId: string): Promise<boolean> => {
+    try {
+      console.log(`Checking if map "${mapId}" exists on server...`);
+      const response = await fetch('/api/maps/');
+      if (!response.ok) {
+        console.warn(`Server returned ${response.status} when checking for map ${mapId}`);
+        return false;
+      }
+      
+      const data = await response.json();
+      if (data.maps && Object.keys(data.maps).length > 0) {
+        // Convert server map names to IDs for comparison
+        const serverMapIds = Object.keys(data.maps).map(name => 
+          name.toLowerCase().replace(/\s+/g, '_')
+        );
+        const exists = serverMapIds.includes(mapId);
+        console.log(`Map ${mapId} ${exists ? 'exists' : 'does not exist'} on server`);
+        return exists;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`Error checking if map ${mapId} exists on server:`, error);
+      return false;
+    }
+  };
+  
   const handleMapChange = (_: React.SyntheticEvent, newMap: string) => {
     setSelectedMap(newMap);
   };
@@ -110,8 +152,16 @@ const Maps = () => {
     setIsBuilderMode(true);
   };
 
-  const handleSaveMap = (mapData: any) => {
+  const handleSaveMap = async (mapData: any) => {
     setIsBuilderMode(false);
+    
+    // Optional: Check if the map was successfully saved to server
+    if (mapData && mapData.name) {
+      const mapId = mapData.name.toLowerCase().replace(/\s+/g, '_');
+      const existsOnServer = await checkMapExistsOnServer(mapId);
+      console.log(`After saving: Map "${mapData.name}" ${existsOnServer ? 'was saved to server successfully' : 'was NOT saved to server'}`);
+    }
+    
     // No need to reload, we'll re-fetch on effect
   };
 
