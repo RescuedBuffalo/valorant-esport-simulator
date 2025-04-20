@@ -87,7 +87,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [currentArea, setCurrentArea] = useState<MapArea | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info'>('info');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info' | 'warning'>('info');
   const [mapName, setMapName] = useState('New Map');
   const [isSaving, setIsSaving] = useState(false);
   
@@ -486,8 +486,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     };
     
     setIsSaving(true);
-    
+
     try {
+      // Save locally first to ensure we have the map data
+      const mapJson = JSON.stringify(dataToSend, null, 2);
+      localStorage.setItem(`map_${mapName.toLowerCase().replace(/\s+/g, '_')}`, mapJson);
+      
+      // Try to save to server
       const response = await fetch('/api/maps/', {
         method: 'POST',
         headers: {
@@ -500,20 +505,34 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       
       if (result.success) {
         showSnackbar('Map saved successfully to server', 'success');
-        
-        // Also download a local copy
-        saveMap();
-        
-        // Call the callback if provided
-        if (onSaveComplete) {
-          onSaveComplete(dataToSend);
-        }
       } else {
-        showSnackbar(`Error saving map: ${result.error}`, 'error');
+        console.warn('Server save failed, but map saved locally:', result.error);
+        showSnackbar('Map saved locally (server save failed)', 'warning');
+      }
+      
+      // Also download a local copy
+      const blob = new Blob([mapJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${mapName.toLowerCase().replace(/\s+/g, '_')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Call the callback if provided
+      if (onSaveComplete) {
+        onSaveComplete(dataToSend);
       }
     } catch (error) {
-      showSnackbar('Error connecting to server', 'error');
-      console.error('Error saving map to server:', error);
+      console.error('Error saving map:', error);
+      showSnackbar('Saved locally (server connection failed)', 'warning');
+      
+      // Make sure to call the callback so we return to maps view
+      if (onSaveComplete) {
+        onSaveComplete(dataToSend);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -545,7 +564,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   };
   
   // Show a snackbar message
-  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info') => {
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info' | 'warning') => {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
     setSnackbarOpen(true);

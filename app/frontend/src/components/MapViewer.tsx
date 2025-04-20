@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -341,6 +341,35 @@ const MapViewer: React.FC<MapViewerProps> = ({
   const [hoveredArea, setHoveredArea] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadedMapData, setLoadedMapData] = useState<any>(null);
+  
+  // Attempt to load map from localStorage
+  useEffect(() => {
+    // Reset state when mapId changes
+    setLoadedMapData(null);
+    setError(null);
+    setLoading(true);
+    
+    try {
+      // Check if we have this map in localStorage
+      const localStorageKey = `map_${mapId}`;
+      const localData = localStorage.getItem(localStorageKey);
+      
+      if (localData) {
+        try {
+          const parsedData = JSON.parse(localData);
+          setLoadedMapData(parsedData);
+          console.log(`Loaded map ${mapId} from localStorage`);
+        } catch (e) {
+          console.error('Error parsing local map data:', e);
+        }
+      }
+    } catch (e) {
+      console.error('Error accessing localStorage:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [mapId]);
   
   // Convert polygon points to SVG path format
   const polygonToPath = (polygon: [number, number][], width: number, height: number): string => {
@@ -416,8 +445,90 @@ const MapViewer: React.FC<MapViewerProps> = ({
     setTimeout(() => setLoading(false), 1000);
   };
   
-  // Determine if we should render the custom map or use an image
-  const shouldRenderCustomMap = mapId === 'haven';
+  // Render a custom map from loaded data
+  const renderCustomMap = () => {
+    if (!loadedMapData || !loadedMapData.areas || loadedMapData.areas.length === 0) {
+      return renderFallbackMap();
+    }
+    
+    const SVG_WIDTH = 800;
+    const SVG_HEIGHT = 600;
+    
+    return (
+      <svg
+        width={SVG_WIDTH}
+        height={SVG_HEIGHT}
+        viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+        style={{
+          width: '100%',
+          height: 'auto',
+          cursor: dragging ? 'grabbing' : 'grab',
+          touchAction: 'none',
+          overflow: 'visible',
+        }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+      >
+        <g style={{ transform: svgTransform, transformOrigin: 'center' }}>
+          {/* Background */}
+          <rect x="0" y="0" width={SVG_WIDTH} height={SVG_HEIGHT} fill={COLORS.BACKGROUND} />
+          
+          {/* Map areas */}
+          {loadedMapData.areas.map((area: any) => {
+            const isHovered = hoveredArea === area.name;
+            
+            // Convert points from the loaded format
+            const polygon: [number, number][] = area.points.map((p: any) => [
+              p.x / SVG_WIDTH,
+              p.y / SVG_HEIGHT
+            ]);
+            
+            const pathString = polygonToPath(polygon, SVG_WIDTH, SVG_HEIGHT);
+            
+            return (
+              <g key={area.id || area.name}>
+                <path
+                  d={pathString}
+                  fill={isHovered ? area.color : `${area.color}99`}
+                  stroke="#ffffff"
+                  strokeWidth={isHovered ? 2 : 1}
+                  onMouseEnter={() => handleAreaHover(area.name)}
+                  onMouseLeave={handleAreaLeave}
+                />
+                
+                {showCallouts && (
+                  <text
+                    x={area.points.reduce((sum: number, point: any) => sum + point.x, 0) / area.points.length}
+                    y={area.points.reduce((sum: number, point: any) => sum + point.y, 0) / area.points.length}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill={COLORS.TEXT}
+                    fontWeight={isHovered ? 'bold' : 'normal'}
+                    fontSize={isHovered ? 14 : 12}
+                  >
+                    {area.name}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+    );
+  };
+  
+  // Determine if we should render a custom map, haven, or use an image
+  const determineRenderMode = () => {
+    if (loadedMapData) {
+      return renderCustomMap();
+    } else if (mapId === 'haven') {
+      return renderHavenMap();
+    } else {
+      return renderFallbackMap();
+    }
+  };
   
   // Render the SVG map for Haven
   const renderHavenMap = () => {
@@ -527,135 +638,77 @@ const MapViewer: React.FC<MapViewerProps> = ({
     );
   };
   
+  // Return the appropriate map renderer based on conditions
+  if (loading) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        height: 400
+      }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  
+  if (error) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        justifyContent: 'center', 
+        alignItems: 'center',
+        height: 400
+      }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button 
+          variant="contained" 
+          color="primary"
+          onClick={handleRetry}
+        >
+          Try Again
+        </Button>
+      </Box>
+    );
+  }
+  
   return (
     <Box sx={{ position: 'relative' }}>
-      <Paper 
-        elevation={3} 
-        sx={{ 
-          overflow: 'hidden',
-          position: 'relative',
-          width: '100%',
-          maxWidth: 800,
-          margin: '0 auto',
-          borderRadius: 2,
-          backgroundColor: COLORS.BACKGROUND,
-        }}
-      >
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 500 }}>
-            <CircularProgress />
-          </Box>
-        ) : error ? (
-          <Box sx={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            alignItems: 'center', 
-            height: 500,
-            flexDirection: 'column',
-            gap: 2,
-            p: 3
-          }}>
-            <Alert severity="error" sx={{ width: '100%', maxWidth: 500 }}>
-              {error}
-            </Alert>
-            <Button variant="contained" startIcon={<RestartAltIcon />} onClick={handleRetry}>
-              Try Again
-            </Button>
-          </Box>
-        ) : (
-          <Box sx={{ position: 'relative' }}>
-            {shouldRenderCustomMap ? renderHavenMap() : renderFallbackMap()}
-            
-            {/* Area information tooltip */}
-            {hoveredArea && (
-              <Box sx={{
-                position: 'absolute',
-                bottom: 16,
-                left: 16,
-                backgroundColor: 'rgba(0,0,0,0.75)',
-                color: 'white',
-                padding: 1.5,
-                borderRadius: 1,
-                maxWidth: '40%',
-                zIndex: 10
-              }}>
-                <Typography variant="subtitle1">{hoveredArea}</Typography>
-                {HAVEN_AREAS.find(area => area.name === hoveredArea)?.description && (
-                  <Typography variant="body2">
-                    {HAVEN_AREAS.find(area => area.name === hoveredArea)?.description}
-                  </Typography>
-                )}
-                {HAVEN_STRATEGIC_POINTS.find(point => point.name === hoveredArea)?.description && (
-                  <Typography variant="body2">
-                    {HAVEN_STRATEGIC_POINTS.find(point => point.name === hoveredArea)?.description}
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </Box>
-        )}
-        
-        {/* Zoom controls */}
-        <Box sx={{ 
-          position: 'absolute', 
-          bottom: 16, 
-          right: 16, 
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          borderRadius: 1,
-          p: 0.5,
-          display: 'flex',
-          flexDirection: 'column',
-          zIndex: 5
-        }}>
-          <IconButton size="small" onClick={handleZoomIn} sx={{ color: 'white' }}>
-            <ZoomInIcon />
-          </IconButton>
-          <IconButton size="small" onClick={handleZoomOut} sx={{ color: 'white' }}>
-            <ZoomOutIcon />
-          </IconButton>
-          <IconButton size="small" onClick={handleResetZoom} sx={{ color: 'white' }}>
-            <RestartAltIcon />
-          </IconButton>
-        </Box>
-      </Paper>
+      {determineRenderMode()}
       
-      {/* Map legend */}
-      <Paper sx={{ mt: 2, p: 2, display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ width: 15, height: 15, borderRadius: '50%', bgcolor: COLORS.ATTACKER_SPAWN, mr: 1 }} />
-          <Typography variant="body2">Attacker Spawn</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ width: 15, height: 15, borderRadius: '50%', bgcolor: COLORS.DEFENDER_SPAWN, mr: 1 }} />
-          <Typography variant="body2">Defender Spawn</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ width: 15, height: 15, borderRadius: 0, bgcolor: COLORS.A_SITE, mr: 1 }} />
-          <Typography variant="body2">A Site</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ width: 15, height: 15, borderRadius: 0, bgcolor: COLORS.B_SITE, mr: 1 }} />
-          <Typography variant="body2">B Site</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ width: 15, height: 15, borderRadius: 0, bgcolor: COLORS.C_SITE, mr: 1 }} />
-          <Typography variant="body2">C Site</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ width: 15, height: 15, borderRadius: 0, bgcolor: COLORS.CONNECTOR + '99', mr: 1 }} />
-          <Typography variant="body2">Connectors</Typography>
-        </Box>
-        {showStrategicPoints && (
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Box sx={{ width: 15, height: 15, borderRadius: '50%', bgcolor: '#ffeb3b', mr: 1 }} />
-            <Typography variant="body2">Strategic Points</Typography>
-          </Box>
-        )}
-      </Paper>
-      
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
-        Note: Hover over areas to see details. Drag to pan and use controls to zoom.
-      </Typography>
+      <Box sx={{ 
+        position: 'absolute', 
+        bottom: 16, 
+        right: 16, 
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1
+      }}>
+        <IconButton 
+          color="primary" 
+          onClick={handleZoomIn} 
+          sx={{ bgcolor: 'rgba(0, 0, 0, 0.5)' }}
+        >
+          <ZoomInIcon />
+        </IconButton>
+        <IconButton 
+          color="primary" 
+          onClick={handleZoomOut} 
+          sx={{ bgcolor: 'rgba(0, 0, 0, 0.5)' }}
+        >
+          <ZoomOutIcon />
+        </IconButton>
+        <IconButton 
+          color="primary" 
+          onClick={handleResetZoom} 
+          sx={{ bgcolor: 'rgba(0, 0, 0, 0.5)' }}
+        >
+          <RestartAltIcon />
+        </IconButton>
+      </Box>
     </Box>
   );
 };

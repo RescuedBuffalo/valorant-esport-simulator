@@ -20,6 +20,7 @@ import MapBuilder from '../components/MapBuilder';
 interface MapInfo {
   id: string;
   name: string;
+  source?: 'local' | 'server';
 }
 
 const Maps = () => {
@@ -30,36 +31,76 @@ const Maps = () => {
   const [availableMaps, setAvailableMaps] = useState<MapInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Load maps from localStorage
+  const loadLocalMaps = (): MapInfo[] => {
+    const localMaps: MapInfo[] = [];
+    
+    // Check localStorage for maps
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('map_')) {
+        try {
+          const mapData = JSON.parse(localStorage.getItem(key) || '');
+          localMaps.push({
+            id: key.replace('map_', ''),
+            name: mapData.name || 'Unknown Map',
+            source: 'local'
+          });
+        } catch (e) {
+          console.error('Error parsing local map:', e);
+        }
+      }
+    }
+    
+    return localMaps;
+  };
+  
   // Fetch available maps from the backend
   useEffect(() => {
     const fetchMaps = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch('/api/maps/');
-        const data = await response.json();
         
-        if (data.maps && Object.keys(data.maps).length > 0) {
-          const mapList = Object.keys(data.maps).map(mapName => ({
-            id: mapName.toLowerCase().replace(/\s+/g, '_'),
-            name: mapName
-          }));
+        // Get local maps first
+        const localMaps = loadLocalMaps();
+        let allMaps = [...localMaps];
+        
+        // Try to fetch from server
+        try {
+          const response = await fetch('/api/maps/');
+          const data = await response.json();
           
-          setAvailableMaps(mapList);
-          
-          // Set the first map as selected if we have maps and none is selected
-          if (mapList.length > 0 && !selectedMap) {
-            setSelectedMap(mapList[0].id);
+          if (data.maps && Object.keys(data.maps).length > 0) {
+            const serverMaps = Object.keys(data.maps).map(mapName => ({
+              id: mapName.toLowerCase().replace(/\s+/g, '_'),
+              name: mapName,
+              source: 'server' as const
+            }));
+            
+            // Merge server maps with local maps, preferring server versions if both exist
+            const existingIds = new Set(allMaps.map(m => m.id));
+            const uniqueServerMaps = serverMaps.filter(m => !existingIds.has(m.id));
+            allMaps = [...allMaps, ...uniqueServerMaps];
           }
+        } catch (error) {
+          console.warn('Error fetching maps from server, using local maps only:', error);
+        }
+        
+        setAvailableMaps(allMaps);
+        
+        // Set the first map as selected if we have maps and none is selected
+        if (allMaps.length > 0 && !selectedMap) {
+          setSelectedMap(allMaps[0].id);
         }
       } catch (error) {
-        console.error('Error fetching maps:', error);
+        console.error('Error loading maps:', error);
       } finally {
         setIsLoading(false);
       }
     };
     
     fetchMaps();
-  }, []);
+  }, [isBuilderMode]); // Re-run when leaving builder mode to refresh maps
   
   const handleMapChange = (_: React.SyntheticEvent, newMap: string) => {
     setSelectedMap(newMap);
@@ -71,8 +112,7 @@ const Maps = () => {
 
   const handleSaveMap = (mapData: any) => {
     setIsBuilderMode(false);
-    // Refresh the map list after saving
-    window.location.reload();
+    // No need to reload, we'll re-fetch on effect
   };
 
   if (isLoading) {
@@ -108,7 +148,11 @@ const Maps = () => {
                   sx={{ mb: 2 }}
                 >
                   {availableMaps.map(map => (
-                    <Tab key={map.id} label={map.name} value={map.id} />
+                    <Tab 
+                      key={map.id} 
+                      label={`${map.name}${map.source === 'local' ? ' (Local)' : ''}`} 
+                      value={map.id} 
+                    />
                   ))}
                 </Tabs>
                 
