@@ -7,13 +7,14 @@ from typing import Dict, List, Optional
 from .simulation.player_generator import PlayerGenerator
 from .simulation.match_engine import MatchEngine
 from .simulation.weapons import WeaponFactory
+from .simulation.maps import map_collection
 
 class ValorantSim:
     def __init__(self):
         self.player_generator = PlayerGenerator()
         self.match_engine = MatchEngine()
         self.teams: Dict[str, List[Dict]] = {}
-        self.maps = ["Ascent", "Bind", "Haven", "Split", "Icebox"]
+        self.maps = map_collection.get_all_map_names()
         
     def generate_new_team(self, name: str, region: Optional[str] = None) -> Dict:
         """Generate a new team with 5 players."""
