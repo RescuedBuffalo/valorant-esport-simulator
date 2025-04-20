@@ -16,6 +16,7 @@ import store from './store';
 import TeamCreation from './components/TeamCreation';
 import TeamList from './components/TeamList';
 import MatchSimulation from './components/MatchSimulation';
+import Maps from './components/Maps';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -60,7 +61,7 @@ const darkTheme = createTheme({
 });
 
 // Routes mapped to tab indices
-const ROUTES = ['/', '/team-creation', '/match-simulation'];
+const ROUTES = ['/', '/team-creation', '/match-simulation', '/maps'];
 
 const AppContent: React.FC = () => {
   const navigate = useNavigate();
@@ -104,6 +105,7 @@ const AppContent: React.FC = () => {
             <Tab label="Teams" />
             <Tab label="Create Team" />
             <Tab label="Simulate Match" />
+            <Tab label="Maps" />
           </Tabs>
         </AppBar>
         <Container maxWidth="lg">
@@ -111,6 +113,7 @@ const AppContent: React.FC = () => {
             <Route path="/" element={<TeamList />} />
             <Route path="/team-creation" element={<TeamCreation />} />
             <Route path="/match-simulation" element={<MatchSimulation />} />
+            <Route path="/maps" element={<Maps />} />
             {/* Default route */}
             <Route path="*" element={<TeamList />} />
           </Routes>

@@ -84,4 +84,69 @@ async def get_maps():
     """Get available maps."""
     return {
         "maps": game.maps
-    } 
+    }
+
+@app.post("/maps/")
+async def save_map(map_data: dict):
+    """Save a custom map."""
+    try:
+        # Create a new MapLayout from the data
+        from app.simulation.maps import MapLayout, MapCallout, MapArea
+        
+        map_id = map_data.get("name", "").lower().replace(" ", "_")
+        
+        # Convert areas to map callouts if needed
+        callouts = {}
+        areas = []
+        
+        for area in map_data.get("areas", []):
+            area_type_str = area.get("type", "connector")
+            area_type = getattr(MapArea, area_type_str.upper(), MapArea.CONNECTOR)
+            
+            # Store raw polygon data for custom rendering
+            areas.append({
+                "name": area.get("name", "Unnamed"),
+                "type": area_type_str,
+                "color": area.get("color", "#cccccc"),
+                "points": area.get("points", []),
+                "description": area.get("description", "")
+            })
+            
+            # Calculate position from polygon centroid
+            points = area.get("points", [])
+            if points:
+                x_sum = sum(p.get("x", 0) for p in points) / len(points)
+                y_sum = sum(p.get("y", 0) for p in points) / len(points)
+                position = (x_sum / 1024, y_sum / 1024)  # Convert to 0-1 scale
+                size = (0.1, 0.1)  # Default size
+                
+                # Add as callout
+                callout_key = area.get("name", "").lower().replace(" ", "_")
+                callouts[callout_key] = MapCallout(
+                    name=area.get("name", "Unnamed"),
+                    area_type=area_type,
+                    position=position,
+                    size=size,
+                    description=area.get("description", ""),
+                    typical_roles=[]
+                )
+        
+        # Create the map layout
+        new_map = MapLayout(
+            id=map_id,
+            name=map_data.get("name", "Custom Map"),
+            image_url=map_data.get("image_url", "/static/maps/default.jpg"),
+            width=1024,
+            height=1024,
+            callouts=callouts,
+            sites=map_data.get("sites", ["A", "B"]),
+            areas=areas
+        )
+        
+        # Add to the map collection
+        from app.simulation.maps import map_collection
+        map_collection.add_map(new_map)
+        
+        return {"success": True, "map_id": map_id}
+    except Exception as e:
+        return {"success": False, "error": str(e)} 
