@@ -16,7 +16,7 @@ import store from './store';
 import TeamCreation from './components/TeamCreation';
 import TeamList from './components/TeamList';
 import MatchSimulation from './components/MatchSimulation';
-import Maps from './components/Maps';
+import Maps from './pages/maps';
 
 interface TabPanelProps {
   children?: React.ReactNode;
