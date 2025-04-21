@@ -172,6 +172,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Default grid size - now consistent across the component
+  const DEFAULT_GRID_SIZE = 64;
+  
   // State for managing the map
   const [mapData, setMapData] = useState<MapData>({
     name: 'New Map',
@@ -181,7 +184,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     collisionMesh: [],
     spawnPoints: { attackers: [], defenders: [] },
     bombsites: {},
-    gridSize: 64, // Updated default grid size to 64
+    gridSize: DEFAULT_GRID_SIZE,
     width: 1200,
     height: 1200,
     scale: 1,
@@ -209,7 +212,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [drawMode, setDrawMode] = useState<'polygon' | 'brush'>('polygon');
   const [isPainting, setIsPainting] = useState(false);
   const [tempPaintedCells, setTempPaintedCells] = useState<GridCell[]>([]);
-  const [gridSize, setGridSize] = useState(64); // Updated default grid size
+  const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE); // Use the default constant
   const [undoHistory, setUndoHistory] = useState<UndoAction[]>([]);
   const [currentPaintColor, setCurrentPaintColor] = useState(AREA_TYPES['connector'].color);
   
@@ -221,13 +224,39 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [showGridSettings, setShowGridSettings] = useState(false);
-  const [gridWidth, setGridWidth] = useState(64);
-  const [gridHeight, setGridHeight] = useState(64);
+  const [gridWidth, setGridWidth] = useState(DEFAULT_GRID_SIZE);
+  const [gridHeight, setGridHeight] = useState(DEFAULT_GRID_SIZE);
   const [activeToolMode, setActiveToolMode] = useState<'draw' | 'pan'>('draw');
   
-  // Draw the map whenever data changes
+  // Initialize the canvas and grid
   useEffect(() => {
-    console.log(`State updated - drawMode: ${drawMode}, tempPaintedCells: ${tempPaintedCells.length}, isCreatingArea: ${isCreatingArea}, isPainting: ${isPainting}`);
+    // Set up canvas with the correct grid size
+    if (canvasRef.current) {
+      const canvas = canvasRef.current;
+      
+      // Make sure canvas dimensions are divisible by grid size
+      const width = Math.ceil(1200 / gridSize) * gridSize;
+      const height = Math.ceil(1200 / gridSize) * gridSize;
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      // Update map data to match
+      setMapData(prev => ({
+        ...prev,
+        width,
+        height,
+        gridSize
+      }));
+      
+      // Draw the initial grid
+      drawMap();
+    }
+  }, []);
+  
+  // Draw the map whenever relevant state changes
+  useEffect(() => {
+    console.log(`State updated - drawMode: ${drawMode}, tempPaintedCells: ${tempPaintedCells.length}, isCreatingArea: ${isCreatingArea}, isPainting: ${isPainting}, zoom: ${zoom}`);
     drawMap();
   }, [mapData, activeAreaId, isCreatingArea, tempPoints, tempPaintedCells, drawMode, isPainting, zoom, pan, gridSize]);
   
@@ -254,7 +283,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     ctx.translate(pan.x, pan.y);
     ctx.scale(zoom, zoom);
     
-    // Draw background grid
+    // Draw background grid - keeping grid size static even with zoom
     drawGrid(ctx, canvas.width / zoom, canvas.height / zoom);
     
     // Log drawing state
@@ -291,10 +320,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     ctx.restore();
   };
   
-  // Draw background grid with zoom and pan support
+  // Draw background grid with fixed grid size regardless of zoom
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#8c8c8c';
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 0.5 / zoom; // Adjust line width for zoom to keep it thin
     
     // Calculate grid boundaries with panning offset
     const startX = Math.floor(-pan.x / zoom / gridSize) * gridSize;
@@ -318,9 +347,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       ctx.stroke();
     }
     
-    // Draw axes at origin for reference
+    // Draw axes at origin for reference with consistent line width even when zoomed
     ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 / zoom;
     ctx.beginPath();
     ctx.moveTo(0, startY);
     ctx.lineTo(0, endY);
@@ -441,7 +470,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     };
   };
   
-  // Get mouse coordinates with zoom and pan adjustments
+  // Get mouse coordinates with zoom and pan adjustments but keeping grid size static
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | MouseEvent): { x: number, y: number } => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -460,7 +489,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     x = Math.max(0, Math.min(x, canvas.width));
     y = Math.max(0, Math.min(y, canvas.height));
     
-    // Adjust for zoom and pan
+    // Adjust for zoom and pan - for coordinates only, not grid size
     x = (x - pan.x) / zoom;
     y = (y - pan.y) / zoom;
     
@@ -469,9 +498,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     return { x, y };
   };
   
-  // Get cell coordinates with zoom and pan adjustments
+  // Get cell coordinates with static grid size regardless of zoom level
   const getCellFromPosition = (x: number, y: number): GridCell => {
     // Make sure to get the exact grid position by properly snapping to grid
+    // We use gridSize directly because the grid size stays constant regardless of zoom
     const gridX = Math.floor(x / gridSize);
     const gridY = Math.floor(y / gridSize);
     
@@ -1543,16 +1573,58 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     recordUserInteraction('MapBuilder', 'change_tool_mode', { mode });
   };
   
-  // Function to apply grid size changes
+  // Add a function to create a new map with specified grid size
+  const createNewMapWithGrid = (gridSize: number): MapData => {
+    // Calculate width and height based on grid size (maintaining roughly the same overall size)
+    const width = Math.ceil(1200 / gridSize) * gridSize;
+    const height = Math.ceil(1200 / gridSize) * gridSize;
+    
+    return {
+      name: mapName || 'New Map',
+      areas: [],
+      version: '1.0',
+      navGraph: [],
+      collisionMesh: [],
+      spawnPoints: { attackers: [], defenders: [] },
+      bombsites: {},
+      gridSize: gridSize,
+      width: width,
+      height: height,
+      scale: 1,
+      chokePoints: [],
+      sightlines: [],
+    };
+  };
+  
+  // Modify the applyGridSettings function to handle grid size change properly
   const applyGridSettings = () => {
-    // Update grid size state and map data
+    // Validate grid size inputs
+    if (gridWidth < 16 || gridWidth > 256) {
+      showSnackbar("Grid size must be between 16 and 256 pixels", "error");
+      return;
+    }
+    
+    // Ask for confirmation if the map already has areas
+    if (mapData.areas.length > 0) {
+      if (!window.confirm("Changing grid size on an existing map may affect area placement. Proceed?")) {
+        return;
+      }
+    }
+    
+    // Update grid size state
     setGridSize(gridWidth);
-    setMapData(prev => ({
-      ...prev,
-      gridSize: gridWidth,
-      width: canvasRef.current?.width || 1200,
-      height: canvasRef.current?.height || 1200
-    }));
+    
+    // If map is empty, create a new one with the correct grid size
+    if (mapData.areas.length === 0) {
+      const newMap = createNewMapWithGrid(gridWidth);
+      setMapData(newMap);
+    } else {
+      // Otherwise, just update the grid size in the existing map
+      setMapData(prev => ({
+        ...prev,
+        gridSize: gridWidth
+      }));
+    }
     
     // Close the settings dialog
     setShowGridSettings(false);
@@ -1561,8 +1633,12 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     recordMapBuilderMetric('update', 'grid_size', 1);
     recordUserInteraction('MapBuilder', 'update_grid_size', {
       width: gridWidth,
-      height: gridHeight
+      height: gridHeight,
+      hasAreas: mapData.areas.length > 0
     });
+    
+    // Show confirmation to user
+    showSnackbar(`Grid size updated to ${gridWidth}px`, "success");
   };
 
   // Handle mouse entering canvas
@@ -2035,16 +2111,19 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
             <FormControl fullWidth sx={{ mb: 2 }}>
               <TextField
                 label="Grid Size"
-                type="number"
+                type="number" 
                 value={gridWidth}
                 onChange={(e) => {
-                  const value = parseInt(e.target.value);
-                  if (value >= 16 && value <= 256) {
-                    setGridWidth(value);
-                    setGridHeight(value);
-                  }
+                  // Allow typing any value, but will be validated on apply
+                  const value = e.target.value === '' ? 0 : parseInt(e.target.value);
+                  setGridWidth(value);
+                  setGridHeight(value);
                 }}
-                inputProps={{ min: 16, max: 256 }}
+                inputProps={{ 
+                  min: 16, 
+                  max: 256,
+                  step: 8
+                }}
                 helperText="Value between 16 and 256 (pixels)"
                 variant="outlined"
                 fullWidth
@@ -2054,6 +2133,57 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
             <Typography variant="body2" gutterBottom>
               Current grid: {gridSize}px × {gridSize}px
             </Typography>
+            
+            {mapData.areas.length > 0 && (
+              <Typography variant="body2" color="warning.main">
+                Note: Changing grid size on an existing map may affect area placement.
+              </Typography>
+            )}
+            
+            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setGridWidth(Math.max(16, gridWidth - 8))}
+              >
+                -8
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setGridWidth(16)}
+              >
+                16px
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setGridWidth(32)}
+              >
+                32px
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setGridWidth(64)}
+              >
+                64px
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setGridWidth(128)}
+              >
+                128px
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setGridWidth(Math.min(256, gridWidth + 8))}
+              >
+                +8
+              </Button>
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions>
