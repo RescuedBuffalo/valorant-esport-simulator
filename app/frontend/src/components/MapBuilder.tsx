@@ -24,6 +24,7 @@ import {
   Tabs,
   Tab,
   ButtonGroup,
+  DialogContentText,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -51,7 +52,15 @@ import { v4 as uuidv4 } from 'uuid';
 import MapDataViewer from './MapDataViewer';
 
 // Import metrics utilities
-import { recordUserInteraction, recordMapBuilderMetric, recordError } from '../utils/metrics';
+import { 
+  recordUserInteraction, 
+  recordMapBuilderMetric, 
+  recordError, 
+  recordMapBuilderObjectCount,
+  measureMapBuilderOperation,
+  recordMapBuilderCollision,
+  recordMapBuilderPathfinding
+} from '../utils/metrics';
 
 // Updated map area types with colors and properties
 const AREA_TYPES = {
@@ -172,8 +181,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Default grid size - now consistent across the component
-  const DEFAULT_GRID_SIZE = 64;
+  // Default grid settings
+  const DEFAULT_TILE_SIZE = 64; // Size of each tile in pixels
+  const DEFAULT_GRID_TILES = 16; // Default number of tiles (16x16 grid)
   
   // State for managing the map
   const [mapData, setMapData] = useState<MapData>({
@@ -184,9 +194,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     collisionMesh: [],
     spawnPoints: { attackers: [], defenders: [] },
     bombsites: {},
-    gridSize: DEFAULT_GRID_SIZE,
-    width: 1200,
-    height: 1200,
+    gridSize: DEFAULT_TILE_SIZE, // Still stored in pixels for rendering
+    width: DEFAULT_GRID_TILES * DEFAULT_TILE_SIZE, // Width in pixels
+    height: DEFAULT_GRID_TILES * DEFAULT_TILE_SIZE, // Height in pixels
     scale: 1,
     chokePoints: [],
     sightlines: [],
@@ -208,11 +218,12 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [mapName, setMapName] = useState('New Map');
   const [isSaving, setIsSaving] = useState(false);
   
-  // New state for paint brush and undo functionality
+  // Grid and canvas state
   const [drawMode, setDrawMode] = useState<'polygon' | 'brush'>('polygon');
   const [isPainting, setIsPainting] = useState(false);
   const [tempPaintedCells, setTempPaintedCells] = useState<GridCell[]>([]);
-  const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE); // Use the default constant
+  const [gridSize, setGridSize] = useState(DEFAULT_TILE_SIZE); // Tile size in pixels
+  const [gridTiles, setGridTiles] = useState(DEFAULT_GRID_TILES); // Number of tiles (not pixels)
   const [undoHistory, setUndoHistory] = useState<UndoAction[]>([]);
   const [currentPaintColor, setCurrentPaintColor] = useState(AREA_TYPES['connector'].color);
   
@@ -224,19 +235,20 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [showGridSettings, setShowGridSettings] = useState(false);
-  const [gridWidth, setGridWidth] = useState(DEFAULT_GRID_SIZE);
-  const [gridHeight, setGridHeight] = useState(DEFAULT_GRID_SIZE);
+  const [tileSize, setTileSize] = useState(DEFAULT_TILE_SIZE); // Pixel size of each tile
+  const [tilesX, setTilesX] = useState(DEFAULT_GRID_TILES); // Number of tiles horizontally
+  const [tilesY, setTilesY] = useState(DEFAULT_GRID_TILES); // Number of tiles vertically
   const [activeToolMode, setActiveToolMode] = useState<'draw' | 'pan'>('draw');
   
   // Initialize the canvas and grid
   useEffect(() => {
-    // Set up canvas with the correct grid size
+    // Set up canvas with the correct dimensions
     if (canvasRef.current) {
       const canvas = canvasRef.current;
       
-      // Make sure canvas dimensions are divisible by grid size
-      const width = Math.ceil(1200 / gridSize) * gridSize;
-      const height = Math.ceil(1200 / gridSize) * gridSize;
+      // Calculate dimensions based on grid tiles and tile size
+      const width = tilesX * tileSize;
+      const height = tilesY * tileSize;
       
       canvas.width = width;
       canvas.height = height;
@@ -246,7 +258,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
         ...prev,
         width,
         height,
-        gridSize
+        gridSize: tileSize
       }));
       
       // Draw the initial grid
@@ -1211,7 +1223,11 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     const denom = d1.x * d2.y - d1.y * d2.x;
     
     // If lines are parallel
-    if (Math.abs(denom) < 0.0001) return false;
+    if (Math.abs(denom) < 0.0001) {
+      // Record collision check "miss" for parallel lines
+      recordMapBuilderCollision('miss');
+      return false;
+    }
     
     // Calculate parameters for both lines
     const d3 = { x: p3.x - p1.x, y: p3.y - p1.y };
@@ -1219,72 +1235,109 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     const u = (d3.x * d1.y - d3.y * d1.x) / denom;
     
     // Check if intersection is within both line segments
-    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    const result = t >= 0 && t <= 1 && u >= 0 && u <= 1;
+    
+    // Record collision metric
+    recordMapBuilderCollision(result ? 'hit' : 'miss');
+    
+    return result;
   };
   
   // Generate line of sight between two points, checking for obstacles
-  const checkLineOfSight = (start: Point, end: Point): boolean => {
-    // Check if line of sight is blocked by any non-walkable area
-    for (const area of mapData.areas) {
-      if (!area.walkable && area.points.length >= 3) {
-        // Check if the line intersects with any edge of the polygon
-        for (let i = 0; i < area.points.length; i++) {
-          const p1 = area.points[i];
-          const p2 = area.points[(i + 1) % area.points.length];
-          
-          if (linesIntersect(start, end, p1, p2)) {
-            return false; // Line of sight is blocked
+  const checkLineOfSight = async (start: Point, end: Point): Promise<boolean> => {
+    // Use our performance measurement utility for pathfinding and sightlines
+    return await measureMapBuilderOperation(async () => {
+      // Count the number of collision checks for this sight line
+      let collisionChecks = 0;
+      let collisionHits = 0;
+      
+      // Check if line of sight is blocked by any non-walkable area
+      for (const area of mapData.areas) {
+        if (!area.walkable && area.points.length >= 3) {
+          // Check if the line intersects with any edge of the polygon
+          for (let i = 0; i < area.points.length; i++) {
+            const p1 = area.points[i];
+            const p2 = area.points[(i + 1) % area.points.length];
+            
+            collisionChecks++;
+            
+            if (linesIntersect(start, end, p1, p2)) {
+              collisionHits++;
+              // Record the aggregated collision metrics
+              recordMapBuilderCollision('hit', collisionHits);
+              recordMapBuilderCollision('miss', collisionChecks - collisionHits);
+              
+              return false; // Line of sight is blocked
+            }
           }
         }
       }
-    }
-    
-    return true; // Line of sight is clear
+      
+      // Record the final collision metrics
+      recordMapBuilderCollision('miss', collisionChecks - collisionHits);
+      
+      return true; // Line of sight is clear
+    }, 'line_of_sight_check');
   };
   
   // Function to generate all important sightlines on the map
-  const generateSightlines = (): { start: Point, end: Point, blocked: boolean }[] => {
-    const sightlines: { start: Point, end: Point, blocked: boolean }[] = [];
-    const tacticalPoints: Point[] = [];
-    
-    // Collect tactical points (area centroids, bombsites, etc.)
-    for (const area of mapData.areas) {
-      if (area.tactical && area.points.length >= 3) {
-        tacticalPoints.push(calculateCentroid(area.points));
+  const generateSightlines = async (): Promise<{ start: Point, end: Point, blocked: boolean }[]> => {
+    return await measureMapBuilderOperation(async () => {
+      const sightlines: { start: Point, end: Point, blocked: boolean }[] = [];
+      const tacticalPoints: Point[] = [];
+      
+      // Collect tactical points (area centroids, bombsites, etc.)
+      for (const area of mapData.areas) {
+        if (area.tactical && area.points.length >= 3) {
+          tacticalPoints.push(calculateCentroid(area.points));
+        }
       }
-    }
-    
-    // Add bombsites
-    if (mapData.bombsites.a) tacticalPoints.push(...mapData.bombsites.a);
-    if (mapData.bombsites.b) tacticalPoints.push(...mapData.bombsites.b);
-    if (mapData.bombsites.c) tacticalPoints.push(...mapData.bombsites.c);
-    
-    // Add choke points
-    tacticalPoints.push(...mapData.chokePoints);
-    
-    // Generate sightlines between tactical points
-    for (let i = 0; i < tacticalPoints.length; i++) {
-      for (let j = i + 1; j < tacticalPoints.length; j++) {
-        const start = tacticalPoints[i];
-        const end = tacticalPoints[j];
-        
-        const isBlocked = !checkLineOfSight(start, end);
-        sightlines.push({ start, end, blocked: isBlocked });
+      
+      // Add bombsites
+      if (mapData.bombsites.a) tacticalPoints.push(...mapData.bombsites.a);
+      if (mapData.bombsites.b) tacticalPoints.push(...mapData.bombsites.b);
+      if (mapData.bombsites.c) tacticalPoints.push(...mapData.bombsites.c);
+      
+      // Add choke points
+      tacticalPoints.push(...mapData.chokePoints);
+      
+      // Measure complexity by the number of sight lines to check
+      const numSightlines = (tacticalPoints.length * (tacticalPoints.length - 1)) / 2;
+      let complexity: 'low' | 'medium' | 'high' = 'low';
+      
+      if (numSightlines > 100) {
+        complexity = 'high';
+      } else if (numSightlines > 30) {
+        complexity = 'medium';
       }
-    }
-    
-    return sightlines;
+      
+      // Record pathfinding metric for this operation
+      recordMapBuilderPathfinding('sightline_generation', complexity, 0);
+      
+      // Generate sightlines between tactical points
+      for (let i = 0; i < tacticalPoints.length; i++) {
+        for (let j = i + 1; j < tacticalPoints.length; j++) {
+          const start = tacticalPoints[i];
+          const end = tacticalPoints[j];
+          
+          const isBlocked = !(await checkLineOfSight(start, end));
+          sightlines.push({ start, end, blocked: isBlocked });
+        }
+      }
+      
+      return sightlines;
+    }, 'generate_sightlines');
   };
   
   // Enhanced function to prepare map data for saving
-  const prepareMapDataForSave = (): MapData => {
+  const prepareMapDataForSave = async (): Promise<MapData> => {
     // Create a copy of the current map data
     const enhancedMapData: MapData = {
       ...mapData,
       name: mapName,
-      width: canvasRef.current?.width || 1200,
-      height: canvasRef.current?.height || 1200,
-      gridSize: gridSize,
+      width: canvasRef.current?.width || (tilesX * tileSize),
+      height: canvasRef.current?.height || (tilesY * tileSize),
+      gridSize: tileSize,
     };
     
     // Process each area to add necessary gameplay information
@@ -1371,23 +1424,23 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     // Identify choke points
     enhancedMapData.chokePoints = identifyChokePoints(processedAreas);
     
-    // Generate sightlines
-    enhancedMapData.sightlines = generateSightlines();
+    // Generate sightlines (now async)
+    enhancedMapData.sightlines = await generateSightlines();
     
     return enhancedMapData;
   };
   
   // Override the saveMap function
-  const saveMap = () => {
+  const saveMap = async () => {
     if (mapData.areas.length === 0) {
       showSnackbar('Map must have at least one area', 'error');
       return;
     }
     
-    const enhancedMapData = prepareMapDataForSave();
-    
-    // Save to localStorage
     try {
+      const enhancedMapData = await prepareMapDataForSave();
+      
+      // Save to localStorage
       const mapId = mapName.toLowerCase().replace(/\s+/g, '_');
       localStorage.setItem(`map_${mapId}`, JSON.stringify(enhancedMapData));
       showSnackbar(`Map "${mapName}" saved locally`, 'success');
@@ -1406,30 +1459,47 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       setIsSaving(true);
       
       // Prepare the map data for saving if not provided
-      const mapToSave = data || prepareMapDataForSave();
+      const mapToSave = data || await prepareMapDataForSave();
       
       // Log the map data for debugging
       console.log("Saving map data to backend:", mapToSave);
       
-      // Simulate save operation for now
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Replace with actual API call
+      // Record object counts before saving
+      const objectCounts = {
+        areas: mapToSave.areas.length,
+        navNodes: mapToSave.navGraph.length,
+        collisionBoundaries: mapToSave.collisionMesh.length,
+        chokePoints: mapToSave.chokePoints.length,
+        sightlines: mapToSave.sightlines.length,
+        spawnPoints: mapToSave.spawnPoints.attackers.length + mapToSave.spawnPoints.defenders.length,
+      };
+      
+      // Record the object counts for metrics
+      recordMapBuilderObjectCount(objectCounts);
+      
+      // Use the performance measuring wrapper
+      const savedMap = await measureMapBuilderOperation(async () => {
+        // Simulate save operation for now
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Replace with actual API call
+        return mapToSave;
+      }, 'save_map');
       
       // Show success message
       showSnackbar("Map saved successfully!", "success");
       
       // Update map name in state
-      mapToSave.name = mapName;
-      setMapData(mapToSave);
+      savedMap.name = mapName;
+      setMapData(savedMap);
       
       // Call the callback if provided
       if (onSaveComplete) {
-        onSaveComplete(mapToSave);
+        onSaveComplete(savedMap);
       }
       
       // Record successful save metric
       recordMapBuilderMetric('save', 'map', 1);
       
-      return mapToSave;
+      return savedMap;
     } catch (error) {
       console.error("Error saving map:", error);
       showSnackbar("Failed to save map. Please try again.", "error");
@@ -1501,7 +1571,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   };
   
   // We'll create a wrapper function that properly handles the onClick event
-  const handleSaveToBackend = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleSaveToBackend = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     
     // Record the user interaction
@@ -1512,7 +1582,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       collisionBoundaryCount: mapData.collisionMesh.length
     });
     
-    saveMapToBackend();
+    await saveMapToBackend();
   };
 
   // Add a useEffect to track tab changes for metrics
@@ -1573,11 +1643,11 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     recordUserInteraction('MapBuilder', 'change_tool_mode', { mode });
   };
   
-  // Add a function to create a new map with specified grid size
-  const createNewMapWithGrid = (gridSize: number): MapData => {
-    // Calculate width and height based on grid size (maintaining roughly the same overall size)
-    const width = Math.ceil(1200 / gridSize) * gridSize;
-    const height = Math.ceil(1200 / gridSize) * gridSize;
+  // Add a function to create a new map with specified grid dimensions
+  const createNewMapWithGrid = (tileSize: number, tilesX: number, tilesY: number): MapData => {
+    // Calculate width and height based on tile size and count
+    const width = tilesX * tileSize;
+    const height = tilesY * tileSize;
     
     return {
       name: mapName || 'New Map',
@@ -1587,60 +1657,127 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       collisionMesh: [],
       spawnPoints: { attackers: [], defenders: [] },
       bombsites: {},
-      gridSize: gridSize,
-      width: width,
-      height: height,
+      gridSize: tileSize, // Pixel size of each tile
+      width: width, // Total width in pixels
+      height: height, // Total height in pixels
       scale: 1,
       chokePoints: [],
       sightlines: [],
     };
   };
   
-  // Modify the applyGridSettings function to handle grid size change properly
-  const applyGridSettings = () => {
-    // Validate grid size inputs
-    if (gridWidth < 16 || gridWidth > 256) {
-      showSnackbar("Grid size must be between 16 and 256 pixels", "error");
-      return;
-    }
-    
-    // Ask for confirmation if the map already has areas
-    if (mapData.areas.length > 0) {
-      if (!window.confirm("Changing grid size on an existing map may affect area placement. Proceed?")) {
-        return;
-      }
-    }
-    
-    // Update grid size state
-    setGridSize(gridWidth);
-    
-    // If map is empty, create a new one with the correct grid size
-    if (mapData.areas.length === 0) {
-      const newMap = createNewMapWithGrid(gridWidth);
-      setMapData(newMap);
-    } else {
-      // Otherwise, just update the grid size in the existing map
-      setMapData(prev => ({
-        ...prev,
-        gridSize: gridWidth
-      }));
-    }
-    
-    // Close the settings dialog
-    setShowGridSettings(false);
-    
-    // Record grid size change metric
-    recordMapBuilderMetric('update', 'grid_size', 1);
-    recordUserInteraction('MapBuilder', 'update_grid_size', {
-      width: gridWidth,
-      height: gridHeight,
-      hasAreas: mapData.areas.length > 0
-    });
-    
-    // Show confirmation to user
-    showSnackbar(`Grid size updated to ${gridWidth}px`, "success");
+  // Grid settings dialog
+  const [gridDialogOpen, setGridDialogOpen] = useState(false);
+  const [tempTilesX, setTempTilesX] = useState(tilesX);
+  const [tempTilesY, setTempTilesY] = useState(tilesY);
+  const [tempTileSize, setTempTileSize] = useState(tileSize);
+  const [gridValidationError, setGridValidationError] = useState<string | null>(null);
+
+  const handleGridDialogOpen = () => {
+    setTempTilesX(tilesX);
+    setTempTilesY(tilesY);
+    setTempTileSize(tileSize);
+    setGridValidationError(null);
+    setGridDialogOpen(true);
   };
 
+  const handleGridDialogClose = () => {
+    setGridDialogOpen(false);
+    setGridValidationError(null);
+  };
+
+  const applyGridSettings = () => {
+    // Validate grid settings
+    if (tempTilesX < 8 || tempTilesX > 64 || tempTilesY < 8 || tempTilesY > 64) {
+      setGridValidationError('Grid dimensions must be between 8x8 and 64x64 tiles');
+      return;
+    }
+
+    if (tempTileSize < 16 || tempTileSize > 128) {
+      setGridValidationError('Tile size must be between 16 and 128 pixels');
+      return;
+    }
+
+    const newWidth = tempTilesX * tempTileSize;
+    const newHeight = tempTilesY * tempTileSize;
+
+    setTilesX(tempTilesX);
+    setTilesY(tempTilesY);
+    setTileSize(tempTileSize);
+
+    // If we have a canvas, resize it
+    if (canvasRef.current) {
+      canvasRef.current.width = newWidth;
+      canvasRef.current.height = newHeight;
+    }
+
+    // Update map data with new dimensions
+    setMapData(prevData => ({
+      ...prevData,
+      width: newWidth,
+      height: newHeight,
+      gridSize: tempTileSize
+    }));
+
+    // Close dialog
+    setGridDialogOpen(false);
+    setGridValidationError(null);
+
+    // Record the grid settings change metric
+    recordUserInteraction('MapBuilder', 'apply_grid_settings', {
+      tilesX: tempTilesX,
+      tilesY: tempTilesY,
+      tileSize: tempTileSize
+    });
+  };
+  
+  // Grid settings dialog JSX
+  const renderGridSettingsDialog = () => (
+    <Dialog open={gridDialogOpen} onClose={handleGridDialogClose}>
+      <DialogTitle>Grid Settings</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          Set the grid dimensions in tiles and the size of each tile in pixels.
+        </DialogContentText>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+          <TextField
+            label="Grid Width (tiles)"
+            type="number"
+            InputProps={{ inputProps: { min: 8, max: 64 } }}
+            value={tempTilesX}
+            onChange={(e) => setTempTilesX(Number(e.target.value))}
+            fullWidth
+          />
+          <TextField
+            label="Grid Height (tiles)"
+            type="number"
+            InputProps={{ inputProps: { min: 8, max: 64 } }}
+            value={tempTilesY}
+            onChange={(e) => setTempTilesY(Number(e.target.value))}
+            fullWidth
+          />
+          <TextField
+            label="Tile Size (pixels)"
+            type="number"
+            InputProps={{ inputProps: { min: 16, max: 128 } }}
+            value={tempTileSize}
+            onChange={(e) => setTempTileSize(Number(e.target.value))}
+            fullWidth
+          />
+          {gridValidationError && (
+            <Typography color="error">{gridValidationError}</Typography>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleGridDialogClose}>Cancel</Button>
+        <Button onClick={applyGridSettings} color="primary">
+          Apply
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+  
   // Handle mouse entering canvas
   const handleCanvasMouseEnter = (e: React.MouseEvent<HTMLCanvasElement>) => {
     setIsMouseOverCanvas(true);
@@ -1797,10 +1934,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 <Button 
                   variant="outlined" 
                   size="small" 
-                  onClick={() => setShowGridSettings(true)} 
+                  onClick={handleGridDialogOpen} 
                   sx={{ mr: 1 }}
                 >
-                  <SettingsIcon sx={{ mr: 0.5 }} /> Grid
+                  <SettingsIcon sx={{ mr: 0.5 }} /> Grid ({mapData.width / mapData.gridSize}×{mapData.height / mapData.gridSize})
                 </Button>
               </Tooltip>
               
@@ -2101,96 +2238,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       )}
       
       {/* Grid Settings Dialog */}
-      <Dialog open={showGridSettings} onClose={() => setShowGridSettings(false)}>
-        <DialogTitle>Grid Settings</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" paragraph>
-            Configure the grid size. Smaller values create a finer grid, larger values create a coarser grid.
-          </Typography>
-          <Box sx={{ py: 2 }}>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <TextField
-                label="Grid Size"
-                type="number" 
-                value={gridWidth}
-                onChange={(e) => {
-                  // Allow typing any value, but will be validated on apply
-                  const value = e.target.value === '' ? 0 : parseInt(e.target.value);
-                  setGridWidth(value);
-                  setGridHeight(value);
-                }}
-                inputProps={{ 
-                  min: 16, 
-                  max: 256,
-                  step: 8
-                }}
-                helperText="Value between 16 and 256 (pixels)"
-                variant="outlined"
-                fullWidth
-              />
-            </FormControl>
-            
-            <Typography variant="body2" gutterBottom>
-              Current grid: {gridSize}px × {gridSize}px
-            </Typography>
-            
-            {mapData.areas.length > 0 && (
-              <Typography variant="body2" color="warning.main">
-                Note: Changing grid size on an existing map may affect area placement.
-              </Typography>
-            )}
-            
-            <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-              <Button 
-                variant="outlined" 
-                size="small" 
-                onClick={() => setGridWidth(Math.max(16, gridWidth - 8))}
-              >
-                -8
-              </Button>
-              <Button 
-                variant="outlined" 
-                size="small" 
-                onClick={() => setGridWidth(16)}
-              >
-                16px
-              </Button>
-              <Button 
-                variant="outlined" 
-                size="small" 
-                onClick={() => setGridWidth(32)}
-              >
-                32px
-              </Button>
-              <Button 
-                variant="outlined" 
-                size="small" 
-                onClick={() => setGridWidth(64)}
-              >
-                64px
-              </Button>
-              <Button 
-                variant="outlined" 
-                size="small" 
-                onClick={() => setGridWidth(128)}
-              >
-                128px
-              </Button>
-              <Button 
-                variant="outlined" 
-                size="small" 
-                onClick={() => setGridWidth(Math.min(256, gridWidth + 8))}
-              >
-                +8
-              </Button>
-            </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowGridSettings(false)}>Cancel</Button>
-          <Button variant="contained" onClick={applyGridSettings}>Apply</Button>
-        </DialogActions>
-      </Dialog>
+      {renderGridSettingsDialog()}
       
       {/* Area edit dialog */}
       <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)}>

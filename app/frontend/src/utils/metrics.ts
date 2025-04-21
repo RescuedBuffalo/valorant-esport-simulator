@@ -109,6 +109,86 @@ export const recordError = async (
 };
 
 /**
+ * Record MapBuilder operation performance for Prometheus metrics
+ * 
+ * @param operationType The type of operation being performed
+ * @param durationSeconds The time taken in seconds
+ */
+export const recordMapBuilderPerformance = async (
+  operationType: string,
+  durationSeconds: number
+): Promise<void> => {
+  try {
+    await axios.post(`${METRICS_API_URL}/map_builder_performance`, {
+      operation_type: operationType,
+      duration_seconds: durationSeconds
+    });
+  } catch (error) {
+    console.error('Failed to record map builder performance metrics:', error);
+  }
+};
+
+/**
+ * Record MapBuilder collision detection for Prometheus metrics
+ * 
+ * @param result Either "hit" or "miss" to indicate collision result
+ * @param count The number of collision checks
+ */
+export const recordMapBuilderCollision = async (
+  result: 'hit' | 'miss',
+  count: number = 1
+): Promise<void> => {
+  try {
+    await axios.post(`${METRICS_API_URL}/map_builder_collision`, {
+      result,
+      count
+    });
+  } catch (error) {
+    console.error('Failed to record map builder collision metrics:', error);
+  }
+};
+
+/**
+ * Record MapBuilder object counts for Prometheus metrics
+ * 
+ * @param objectCounts An object with counts of different object types
+ */
+export const recordMapBuilderObjectCount = async (
+  objectCounts: Record<string, number>
+): Promise<void> => {
+  try {
+    await axios.post(`${METRICS_API_URL}/map_builder_object_count`, {
+      object_counts: objectCounts
+    });
+  } catch (error) {
+    console.error('Failed to record map builder object count metrics:', error);
+  }
+};
+
+/**
+ * Record MapBuilder pathfinding performance for Prometheus metrics
+ * 
+ * @param algorithm The pathfinding algorithm used
+ * @param complexity The complexity level ("low", "medium", "high")
+ * @param durationSeconds The time taken in seconds
+ */
+export const recordMapBuilderPathfinding = async (
+  algorithm: string,
+  complexity: 'low' | 'medium' | 'high',
+  durationSeconds: number
+): Promise<void> => {
+  try {
+    await axios.post(`${METRICS_API_URL}/map_builder_pathfinding`, {
+      algorithm,
+      complexity,
+      duration_seconds: durationSeconds
+    });
+  } catch (error) {
+    console.error('Failed to record map builder pathfinding metrics:', error);
+  }
+};
+
+/**
  * Helper function to measure and record component rendering time
  * 
  * @param callback Function to execute and measure
@@ -122,6 +202,27 @@ export const measureComponentRender = <T>(callback: () => T, componentName: stri
   
   // Record the metric asynchronously
   recordComponentRender(componentName, duration);
+  
+  return result;
+};
+
+/**
+ * Helper function to measure and record MapBuilder operation performance
+ * 
+ * @param callback Function to execute and measure
+ * @param operationType Type of operation being performed
+ * @returns Result of the callback function
+ */
+export const measureMapBuilderOperation = async <T>(
+  callback: () => Promise<T>, 
+  operationType: string
+): Promise<T> => {
+  const startTime = performance.now();
+  const result = await callback();
+  const duration = (performance.now() - startTime) / 1000; // Convert to seconds
+  
+  // Record the metric asynchronously
+  recordMapBuilderPerformance(operationType, duration);
   
   return result;
 }; 

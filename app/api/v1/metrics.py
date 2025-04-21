@@ -4,7 +4,7 @@ Endpoints for receiving metrics from the frontend.
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
-from prometheus_client import Histogram, Counter
+from prometheus_client import Histogram, Counter, Gauge
 import logging
 
 from app.core.prometheus import observe_page_load_time, ERROR_COUNT, REQUEST_LATENCY
@@ -29,6 +29,31 @@ MAP_BUILDER_ACTION_COUNT = Counter(
     "app_map_builder_action_count",
     "Number of MapBuilder actions by type and entity",
     ["action", "entity_type"]
+)
+
+# New MapBuilder performance metrics
+MAP_BUILDER_OPERATION_LATENCY = Histogram(
+    "app_map_builder_operation_latency_seconds",
+    "MapBuilder operation latency in seconds",
+    ["operation_type"]
+)
+
+MAP_BUILDER_OBJECT_COUNT = Gauge(
+    "app_map_builder_object_count",
+    "Number of objects in the map by type",
+    ["object_type"]
+)
+
+MAP_BUILDER_COLLISION_CHECK_COUNT = Counter(
+    "app_map_builder_collision_check_count",
+    "Number of collision detection checks performed",
+    ["result"]  # "hit" or "miss"
+)
+
+MAP_BUILDER_PATHFINDING_TIME = Histogram(
+    "app_map_builder_pathfinding_time_seconds",
+    "Time taken to calculate pathfinding",
+    ["algorithm", "complexity"]
 )
 
 class PageLoadTimeMetric(BaseModel):
@@ -62,6 +87,30 @@ class MapBuilderActionMetric(BaseModel):
     action: str
     entity_type: str
     count: int = 1
+
+
+class MapBuilderPerformanceMetric(BaseModel):
+    """MapBuilder performance metric data."""
+    operation_type: str
+    duration_seconds: float
+
+
+class MapBuilderCollisionMetric(BaseModel):
+    """MapBuilder collision detection metric data."""
+    result: str  # "hit" or "miss"
+    count: int = 1
+
+
+class MapBuilderObjectCountMetric(BaseModel):
+    """MapBuilder object count metric data."""
+    object_counts: Dict[str, int]
+
+
+class MapBuilderPathfindingMetric(BaseModel):
+    """MapBuilder pathfinding performance metric data."""
+    algorithm: str
+    complexity: str  # "low", "medium", "high" based on number of obstacles and distance
+    duration_seconds: float
 
 
 @router.post("/page_load")
@@ -133,5 +182,53 @@ async def track_map_builder_action(metric: MapBuilderActionMetric):
     logging.debug(
         f"MapBuilder action: {metric.action} on {metric.entity_type} (count: {metric.count})"
     )
+    
+    return {"status": "ok"}
+
+
+@router.post("/map_builder_performance")
+async def track_map_builder_performance(metric: MapBuilderPerformanceMetric):
+    """
+    Track MapBuilder operation performance.
+    """
+    MAP_BUILDER_OPERATION_LATENCY.labels(
+        operation_type=metric.operation_type
+    ).observe(metric.duration_seconds)
+    
+    return {"status": "ok"}
+
+
+@router.post("/map_builder_collision")
+async def track_map_builder_collision(metric: MapBuilderCollisionMetric):
+    """
+    Track MapBuilder collision detection checks.
+    """
+    MAP_BUILDER_COLLISION_CHECK_COUNT.labels(
+        result=metric.result
+    ).inc(metric.count)
+    
+    return {"status": "ok"}
+
+
+@router.post("/map_builder_object_count")
+async def track_map_builder_object_count(metric: MapBuilderObjectCountMetric):
+    """
+    Track the number of objects in the MapBuilder by type.
+    """
+    for obj_type, count in metric.object_counts.items():
+        MAP_BUILDER_OBJECT_COUNT.labels(object_type=obj_type).set(count)
+    
+    return {"status": "ok"}
+
+
+@router.post("/map_builder_pathfinding")
+async def track_map_builder_pathfinding(metric: MapBuilderPathfindingMetric):
+    """
+    Track MapBuilder pathfinding performance.
+    """
+    MAP_BUILDER_PATHFINDING_TIME.labels(
+        algorithm=metric.algorithm,
+        complexity=metric.complexity
+    ).observe(metric.duration_seconds)
     
     return {"status": "ok"} 
