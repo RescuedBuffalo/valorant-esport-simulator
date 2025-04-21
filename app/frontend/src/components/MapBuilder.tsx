@@ -268,7 +268,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       }));
       
       // Draw the initial grid
-      drawMap();
+    drawMap();
     }
     
     // Load saved dark mode preference
@@ -726,13 +726,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
         // Only add if not already in tempPaintedCells
         if (!cellExists(tempPaintedCells, currentCell)) {
           setTempPaintedCells(prev => [...prev, currentCell]);
-          
-          // Add to undo history
+        
+        // Add to undo history
           setUndoHistory(prev => [...prev, { 
-            type: 'PAINT_CELL', 
+          type: 'PAINT_CELL', 
             cell: currentCell,
-            color: currentPaintColor
-          }]);
+          color: currentPaintColor
+        }]);
         }
         
         setLastValidCell(currentCell);
@@ -1795,13 +1795,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
           Set the grid dimensions in tiles and the size of each tile in pixels.
         </DialogContentText>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-          <TextField
+            <TextField
             label="Grid Width (tiles)"
             type="number"
             InputProps={{ inputProps: { min: 8, max: 64 } }}
             value={tempTilesX}
             onChange={(e) => setTempTilesX(Number(e.target.value))}
-            fullWidth
+              fullWidth
           />
           <TextField
             label="Grid Height (tiles)"
@@ -1943,9 +1943,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       {/* Header with map name editor */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <TextField
-          label="Map Name"
-          variant="outlined"
-          size="small"
+              label="Map Name"
+              variant="outlined"
+              size="small"
           value={mapName}
           onChange={(e) => setMapName(e.target.value)}
           sx={{ width: 300 }}
@@ -2087,27 +2087,27 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                     size="small"
                     aria-label="drawing mode"
                   >
-                    <ToggleButton 
-                      value="brush" 
-                      onClick={() => {
-                        console.log("Brush tool button clicked");
-                        startPaintingMode();
-                        // Force redraw after short delay to ensure state is updated
-                        setTimeout(forceCanvasUpdate, 100);
-                      }}
-                      aria-label="brush tool"
-                    >
-                      <Tooltip title="Brush Tool (Click to paint squares)">
-                        <BrushIcon />
-                      </Tooltip>
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-                  
-                  {/* Color Selector */}
+                <ToggleButton 
+                  value="brush" 
+                  onClick={() => {
+                    console.log("Brush tool button clicked");
+                    startPaintingMode();
+                    // Force redraw after short delay to ensure state is updated
+                    setTimeout(forceCanvasUpdate, 100);
+                  }}
+                  aria-label="brush tool"
+                >
+                  <Tooltip title="Brush Tool (Click to paint squares)">
+                    <BrushIcon />
+                  </Tooltip>
+                </ToggleButton>
+              </ToggleButtonGroup>
+              
+              {/* Color Selector */}
                   <ToggleButtonGroup
                     value={currentPaintColor}
                     exclusive
-                    size="small"
+                  size="small"
                     aria-label="area color"
                   >
                     {Object.entries(AREA_TYPES).map(([type, details]) => (
@@ -2116,7 +2116,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                         value={details.color}
                         onClick={() => setCurrentPaintColor(details.color)}
                         aria-label={`${details.label} color`}
-                        sx={{ 
+                        sx={{
                           backgroundColor: details.color + '99', 
                           '&.Mui-selected': { backgroundColor: details.color + 'CC' },
                           '&:hover': { backgroundColor: details.color + 'AA' }
@@ -2131,51 +2131,51 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                   
                   {/* Create/Add Area Button */}
                   <Tooltip title="Start painting new area">
-                    <Button
+              <Button 
                       size="small"
-                      variant="contained"
-                      color="primary"
+                variant="contained" 
+                color="primary" 
                       startIcon={<BrushIcon />}
                       onClick={startPaintingMode}
                       disabled={drawMode === 'brush' && tempPaintedCells.length === 0}
                     >
                       Paint Area
-                    </Button>
+              </Button>
                   </Tooltip>
-                  
+              
                   {/* Undo Button */}
-                  <Tooltip title="Undo Last Action">
-                    <span>
-                      <IconButton 
+              <Tooltip title="Undo Last Action">
+                <span>
+                  <IconButton 
                         size="small" 
-                        onClick={handleUndo}
-                        disabled={undoHistory.length === 0}
+                    onClick={handleUndo} 
+                    disabled={undoHistory.length === 0}
                         color="primary"
-                      >
-                        <UndoIcon />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  
-                  {activeAreaId && (
-                    <>
-                      <Button 
-                        variant="outlined" 
-                        startIcon={<EditIcon />}
-                        onClick={handleEditArea}
-                        size="small"
-                      >
-                        Edit
-                      </Button>
-                      <Button 
-                        variant="outlined" 
-                        color="error" 
-                        startIcon={<DeleteIcon />}
-                        onClick={handleDeleteArea}
-                        size="small"
-                      >
-                        Delete
-                      </Button>
+                  >
+                    <UndoIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              
+              {activeAreaId && (
+                <>
+                  <Button 
+                    variant="outlined" 
+                    startIcon={<EditIcon />}
+                    onClick={handleEditArea}
+                    size="small"
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    variant="outlined" 
+                    color="error" 
+                    startIcon={<DeleteIcon />}
+                    onClick={handleDeleteArea}
+                    size="small"
+                  >
+                    Delete
+                  </Button>
                     </>
                   )}
                 </>
@@ -2248,14 +2248,14 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
               
               {/* Grid Settings Button */}
               <Tooltip title="Grid Settings">
-                <Button 
+              <Button
                   variant="outlined" 
-                  size="small" 
+                size="small"
                   onClick={handleGridDialogOpen} 
                   sx={{ mr: 1 }}
-                >
+              >
                   <SettingsIcon sx={{ mr: 0.5 }} /> Grid ({mapData.width / mapData.gridSize}×{mapData.height / mapData.gridSize})
-                </Button>
+              </Button>
               </Tooltip>
             </Box>
           </Box>
@@ -2273,23 +2273,23 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 borderRadius: 1,
               }}
             >
-              <Button
-                variant="contained"
-                color="success"
+                <Button
+                  variant="contained"
+                  color="success"
                 onClick={finishPainting}
-                startIcon={<CheckCircleIcon />}
+                  startIcon={<CheckCircleIcon />}
                 disabled={tempPaintedCells.length === 0}
-              >
+                >
                 Finish Painting
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
                 onClick={cancelPainting}
-                startIcon={<CancelIcon />}
-              >
-                Cancel
-              </Button>
+                  startIcon={<CancelIcon />}
+                >
+                  Cancel
+                </Button>
             </Box>
           )}
           
@@ -2320,7 +2320,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       {activeTab === 'data' && (
         <Box sx={{ flex: 1, overflow: 'auto', height: 'calc(100vh - 200px)' }}>
           <MapDataViewer mapData={mapData} />
-        </Box>
+          </Box>
       )}
       
       {/* Grid Settings Dialog */}
@@ -2330,24 +2330,24 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       {showAreaForm && currentArea && (
         <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)} maxWidth="sm" fullWidth>
           <form onSubmit={handleSaveArea}>
-            <DialogTitle>
+        <DialogTitle>
               {currentArea.id.includes('temp-') ? 'Create New Area' : 'Edit Area'}
-            </DialogTitle>
-            <DialogContent>
-              <TextField
-                autoFocus
-                margin="dense"
-                label="Area Name"
-                fullWidth
+        </DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Area Name"
+              fullWidth
                 value={currentArea.name}
                 onChange={(e) => setCurrentArea({...currentArea, name: e.target.value})}
-                required
+              required
                 sx={{ mb: 2 }}
-              />
-              
+            />
+            
               <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
                 <InputLabel>Area Type</InputLabel>
-                <Select
+              <Select
                   value={currentArea.type}
                   onChange={(e) => {
                     const newType = e.target.value as string;
@@ -2361,22 +2361,22 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                   }}
                 >
                   {Object.entries(AREA_TYPES).map(([type, details]) => (
-                    <MenuItem key={type} value={type}>
+                  <MenuItem key={type} value={type}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box 
-                          sx={{ 
-                            width: 16, 
-                            height: 16, 
+                    <Box
+                      sx={{
+                        width: 16,
+                        height: 16,
                             backgroundColor: details.color,
                             borderRadius: '50%'
                           }} 
                         />
                         {details.label}
                       </Box>
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
               
               <FormControl fullWidth sx={{ mb: 2 }}>
                 <Typography gutterBottom>
@@ -2442,23 +2442,23 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                   </ToggleButton>
                 </ToggleButtonGroup>
               </FormControl>
-              
-              <TextField
-                margin="dense"
-                label="Description (Optional)"
-                fullWidth
-                multiline
-                rows={3}
+            
+            <TextField
+              margin="dense"
+              label="Description (Optional)"
+              fullWidth
+              multiline
+              rows={3}
                 value={currentArea.description || ''}
                 onChange={(e) => setCurrentArea({...currentArea, description: e.target.value})}
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setShowAreaForm(false)}>Cancel</Button>
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowAreaForm(false)}>Cancel</Button>
               <Button type="submit" variant="contained" color="primary">Save</Button>
-            </DialogActions>
-          </form>
-        </Dialog>
+          </DialogActions>
+        </form>
+      </Dialog>
       )}
       
       {/* Snackbar for notifications */}

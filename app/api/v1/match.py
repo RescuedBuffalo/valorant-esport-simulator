@@ -20,6 +20,16 @@ class MatchRequest(BaseModel):
     map_name: Optional[str] = "Haven"
     agent_selections: Optional[Dict[str, str]] = None
 
+class RoundSimulationRequest(BaseModel):
+    """Request model for simulating a single round with detailed events."""
+    team_a: str
+    team_b: str
+    map_name: str = "Haven"
+    round_number: int
+    economy: Dict[str, int] = None
+    loss_streaks: Dict[str, int] = None
+    agent_selections: Optional[Dict[str, str]] = None
+
 def transform_for_engine(players):
     """Transform player data from database format to match engine format."""
     engine_players = []
@@ -264,4 +274,128 @@ async def get_recent_matches(limit: int = 10, db: Session = Depends(get_db)):
             }
             for match in matches
         ]
-    } 
+    }
+
+@router.post("/simulate-round")
+async def simulate_round_with_events(request: RoundSimulationRequest, db: Session = Depends(get_db)):
+    """
+    Simulate a single round with detailed play-by-play events.
+    
+    This endpoint provides a more detailed simulation than the standard match simulation,
+    generating events that can be used for play-by-play commentary.
+    """
+    logger.info(f"Round simulation requested: Round {request.round_number} between {request.team_a} and {request.team_b}")
+    
+    try:
+        # Find teams in database
+        team_a_db = TeamRepository.get_team_by_id(db, request.team_a)
+        if not team_a_db:
+            team_a_db = TeamRepository.get_team_by_name(db, request.team_a)
+            
+        team_b_db = TeamRepository.get_team_by_id(db, request.team_b)
+        if not team_b_db:
+            team_b_db = TeamRepository.get_team_by_name(db, request.team_b)
+        
+        if not team_a_db:
+            raise HTTPException(status_code=404, detail=f"Team '{request.team_a}' not found")
+            
+        if not team_b_db:
+            raise HTTPException(status_code=404, detail=f"Team '{request.team_b}' not found")
+        
+        # Get players for both teams
+        team_a_players = transform_for_engine(TeamRepository.get_team_players(db, team_a_db.id))
+        team_b_players = transform_for_engine(TeamRepository.get_team_players(db, team_b_db.id))
+        
+        # Initialize match engine for round simulation
+        match_engine = MatchEngine()
+        
+        # Set up the match_engine state for this specific round
+        match_engine.current_match = match_engine.SimMatch(
+            team_a=team_a_players, 
+            team_b=team_b_players, 
+            map_name=request.map_name
+        )
+        
+        # Set round number
+        match_engine.round_number = request.round_number
+        
+        # Set economy if provided, otherwise use default
+        if request.economy:
+            match_engine.economy = request.economy
+        else:
+            # Default economy based on round number
+            is_pistol_round = request.round_number == 0 or request.round_number == 12
+            if is_pistol_round:
+                match_engine.economy = {"team_a": 4000, "team_b": 4000}
+            else:
+                match_engine.economy = {"team_a": 5000, "team_b": 5000}
+        
+        # Set loss streaks if provided
+        if request.loss_streaks:
+            match_engine.loss_streaks = request.loss_streaks
+        else:
+            match_engine.loss_streaks = {"team_a": 0, "team_b": 0}
+        
+        # Set agent selections if provided
+        if request.agent_selections:
+            match_engine.player_agents = request.agent_selections
+        else:
+            # Generate agent selections
+            match_engine.player_agents = match_engine._select_agents_for_teams(team_a_players, team_b_players)
+        
+        # Simulate the round with detailed events
+        round_result = match_engine._simulate_round_with_events()
+        
+        # Prepare response with additional team information
+        response = {
+            "round_data": round_result,
+            "team_info": {
+                "team_a": {
+                    "id": team_a_db.id,
+                    "name": team_a_db.name,
+                    "logo": team_a_db.logo,
+                    "players": [
+                        {
+                            "id": player["id"],
+                            "firstName": player["firstName"],
+                            "lastName": player["lastName"],
+                            "gamerTag": player["gamerTag"],
+                            "agent": match_engine.player_agents.get(player["id"], "Unknown")
+                        }
+                        for player in team_a_players
+                    ]
+                },
+                "team_b": {
+                    "id": team_b_db.id,
+                    "name": team_b_db.name,
+                    "logo": team_b_db.logo,
+                    "players": [
+                        {
+                            "id": player["id"],
+                            "firstName": player["firstName"],
+                            "lastName": player["lastName"],
+                            "gamerTag": player["gamerTag"],
+                            "agent": match_engine.player_agents.get(player["id"], "Unknown")
+                        }
+                        for player in team_b_players
+                    ]
+                }
+            }
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        logger.error(f"Error during round simulation: {str(e)}")
+        logger.error(error_trace)
+        
+        raise HTTPException(
+            status_code=400, 
+            detail={
+                "message": f"Failed to simulate round: {str(e)}",
+                "error_type": str(type(e).__name__)
+            }
+        ) 

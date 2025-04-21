@@ -44,7 +44,11 @@ export const simulateMatchThunk = createAsyncThunk(
   'game/simulateMatch',
   async (matchRequest: MatchRequest) => {
     try {
-      const response = await axios.post(`${config.API_URL}/api/v1/matches/simulate`, matchRequest);
+      const response = await axios.post(`${config.API_URL}/api/v1/matches/simulate`, {
+        team_a: matchRequest.team_a || matchRequest.teamAId,
+        team_b: matchRequest.team_b || matchRequest.teamBId,
+        map_name: matchRequest.map_name || matchRequest.mapName
+      });
       console.log('Simulate Match Response:', response.data);
       return response.data as MatchResult;
     } catch (error) {

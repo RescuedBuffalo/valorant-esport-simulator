@@ -337,12 +337,16 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
     );
   }
 
+  // Get team names from the response if available
+  const teamAName = roundData.team_info?.team_a?.name || teamA;
+  const teamBName = roundData.team_info?.team_b?.name || teamB;
+
   return (
     <Paper sx={{ p: 2, mb: 3 }}>
       {/* Header with round info and controls */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5">
-          Round {roundNumber}: {teamA} vs {teamB}
+          Round {roundNumber}: {teamAName} vs {teamBName}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Chip 
@@ -377,11 +381,11 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
       {/* Economy information */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
         <Chip 
-          label={`${teamA} Economy: $${roundData.round_data.economy.team_a}`}
+          label={`${teamAName} Economy: $${roundData.round_data.economy.team_a}`}
           color="primary"
         />
         <Chip 
-          label={`${teamB} Economy: $${roundData.round_data.economy.team_b}`}
+          label={`${teamBName} Economy: $${roundData.round_data.economy.team_b}`}
           color="secondary"
         />
       </Box>

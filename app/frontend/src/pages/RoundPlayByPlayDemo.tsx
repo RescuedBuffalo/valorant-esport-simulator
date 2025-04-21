@@ -98,12 +98,16 @@ const RoundPlayByPlayDemo: React.FC = () => {
   };
 
   if (simResult) {
+    // Get team names from the response if available
+    const teamAName = simResult.team_info?.team_a?.name || teamA;
+    const teamBName = simResult.team_info?.team_b?.name || teamB;
+    
     return (
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         <Paper sx={{ p: 3, mb: 4 }}>
           <Typography variant="h4" gutterBottom>Round Simulation Results</Typography>
           <Typography variant="h6">
-            Winner: {simResult.round_data.winner === 'team_a' ? teamA : teamB}
+            Winner: {simResult.round_data.winner === 'team_a' ? teamAName : teamBName}
           </Typography>
           <Typography variant="body1" gutterBottom>
             {simResult.round_data.events.length} events recorded during the round
@@ -113,7 +117,7 @@ const RoundPlayByPlayDemo: React.FC = () => {
             <Grid item xs={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6">{teamA}</Typography>
+                  <Typography variant="h6">{teamAName}</Typography>
                   <Typography>Final Economy: ${simResult.round_data.economy.team_a}</Typography>
                   <Typography>Loss Streak: {simResult.round_data.loss_streaks.team_a}</Typography>
                 </CardContent>
@@ -122,7 +126,7 @@ const RoundPlayByPlayDemo: React.FC = () => {
             <Grid item xs={6}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6">{teamB}</Typography>
+                  <Typography variant="h6">{teamBName}</Typography>
                   <Typography>Final Economy: ${simResult.round_data.economy.team_b}</Typography>
                   <Typography>Loss Streak: {simResult.round_data.loss_streaks.team_b}</Typography>
                 </CardContent>
