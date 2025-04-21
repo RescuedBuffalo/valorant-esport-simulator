@@ -55,5 +55,8 @@
     "transformIgnorePatterns": [
       "node_modules/(?!(axios)/)"
     ]
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0"
   }
 }

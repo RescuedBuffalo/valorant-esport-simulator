@@ -1,7 +1,5 @@
-import gameReducer, {
-  resetMatchResult,
-  setCurrentTeam,
-} from '../gameSlice';
+import { resetMatchResult, setCurrentTeam } from '../gameSlice';
+import reducer from '../gameSlice';
 
 describe('gameSlice', () => {
   const initialState = {
@@ -10,34 +8,37 @@ describe('gameSlice', () => {
     currentTeam: null,
     matchResult: null,
     loading: false,
-    error: null,
+    error: null
   };
 
-  it('should handle initial state', () => {
-    expect(gameReducer(undefined, { type: 'unknown' })).toEqual(initialState);
+  test('should return the initial state', () => {
+    expect(reducer(undefined, { type: 'unknown' })).toEqual(initialState);
   });
 
-  it('should handle resetMatchResult', () => {
-    const stateWithMatchResult = {
+  test('should handle resetMatchResult', () => {
+    const previousState = {
       ...initialState,
       matchResult: {
-        score: { team_a: 13, team_b: 8 },
+        score: { team_a: 13, team_b: 7 },
         rounds: [],
-        duration: 45,
+        duration: 0,
         map: 'Haven',
-        mvp: 'player1',
+        mvp: '123'
       }
     };
-    const actual = gameReducer(stateWithMatchResult, resetMatchResult());
-    expect(actual.matchResult).toBeNull();
+
+    expect(reducer(previousState, resetMatchResult())).toEqual({
+      ...previousState,
+      matchResult: null
+    });
   });
 
-  it('should handle setCurrentTeam', () => {
-    const mockTeam = {
+  test('should handle setCurrentTeam', () => {
+    const team = {
       id: '123',
       name: 'Test Team',
       region: 'NA',
-      reputation: 75,
+      reputation: 50,
       players: [],
       stats: {
         wins: 0,
@@ -46,7 +47,10 @@ describe('gameSlice', () => {
         prize_money: 0
       }
     };
-    const actual = gameReducer(initialState, setCurrentTeam(mockTeam));
-    expect(actual.currentTeam).toEqual(mockTeam);
+
+    expect(reducer(initialState, setCurrentTeam(team))).toEqual({
+      ...initialState,
+      currentTeam: team
+    });
   });
 }); 
