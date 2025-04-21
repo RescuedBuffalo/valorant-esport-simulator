@@ -81,7 +81,7 @@ from app.api.v1 import team, player, match, tournament
 
 app.include_router(team.router, prefix="/api/v1/teams", tags=["teams"])
 app.include_router(player.router, prefix="/api/v1/players", tags=["players"])
-app.include_router(match.router, prefix="/api/v1/match", tags=["matches"])
+app.include_router(match.router, prefix="/api/v1/matches", tags=["matches"])
 app.include_router(tournament.router, prefix="/api/v1/tournaments", tags=["tournaments"])
 
 @app.get("/api/v1/regions")
