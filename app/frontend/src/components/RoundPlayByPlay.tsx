@@ -32,7 +32,7 @@ import FlashOnIcon from '@mui/icons-material/FlashOn';
 import GradeIcon from '@mui/icons-material/Grade';
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
-import ApiService, { RoundSimulationRequest, RoundSimulationResponse, RoundEvent } from '../services/api';
+import { RoundSimulationRequest, RoundSimulationResponse, RoundEvent } from '../types/api.types';
 import { recordUserInteraction } from '../utils/metrics';
 
 interface RoundPlayByPlayProps {
@@ -176,20 +176,32 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
           };
         }
         
-        // Call API to simulate round
-        const response = await ApiService.simulateRound(requestData);
-        setRoundData(response);
+        // Call API to simulate round using fetch directly
+        const response = await fetch('/api/v1/matches/simulate-round', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestData),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API request failed with status: ${response.status}`);
+        }
+        
+        const data: RoundSimulationResponse = await response.json();
+        setRoundData(data);
         
         // Start with showing the first event if autoplay
         if (autoplay) {
           setCurrentEventIndex(0);
-          setDisplayedEvents([response.round_data.events[0]]);
+          setDisplayedEvents([data.round_data.events[0]]);
         }
         
         // Record successful simulation
         recordUserInteraction('RoundPlayByPlay', 'simulation_success', {
           roundNumber,
-          eventCount: response.round_data.events.length,
+          eventCount: data.round_data.events.length,
         });
       } catch (err) {
         console.error('Error fetching round data:', err);

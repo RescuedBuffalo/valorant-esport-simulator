@@ -16,7 +16,7 @@ import {
   SelectChangeEvent,
 } from '@mui/material';
 import RoundPlayByPlay from '../components/RoundPlayByPlay';
-import { RoundSimulationResponse } from '../services/api';
+import { RoundSimulationResponse } from '../types/api.types';
 import { recordUserInteraction } from '../utils/metrics';
 
 const RoundPlayByPlayDemo: React.FC = () => {
