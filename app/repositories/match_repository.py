@@ -4,7 +4,7 @@ Repository for match history operations.
 from typing import Dict, List, Any, Optional
 from sqlalchemy.orm import Session
 
-from app.models.match_history import MatchHistory, EconomyLog, MatchPerformance
+from app.models.match_history import MatchHistory, EconomyLog, MatchPerformanceLog
 
 class MatchRepository:
     """Repository for match history operations."""
@@ -80,7 +80,7 @@ class MatchRepository:
         return created_logs
     
     @staticmethod
-    def add_player_performances(db: Session, match_id: str, performances: List[Dict[str, Any]]) -> List[MatchPerformance]:
+    def add_player_performances(db: Session, match_id: str, performances: List[Dict[str, Any]]) -> List[MatchPerformanceLog]:
         """
         Add player performances for a match.
         
@@ -90,12 +90,12 @@ class MatchRepository:
             performances: List of player performance data
             
         Returns:
-            List of created MatchPerformance objects
+            List of created MatchPerformanceLog objects
         """
         created_performances = []
         
         for perf_data in performances:
-            performance = MatchPerformance(
+            performance = MatchPerformanceLog(
                 match_id=match_id,
                 player_id=perf_data.get("player_id", ""),
                 team_name=perf_data.get("team_name", ""),

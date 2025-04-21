@@ -1,51 +1,71 @@
 """
 Player model representing a professional Valorant player.
 """
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Optional
+from uuid import uuid4
 
-@dataclass
-class Player:
-    """A professional Valorant player."""
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
+
+from app.db.base_class import Base
+
+class Player(Base):
+    """Professional Valorant player model."""
+    __tablename__ = "players"
     
-    # Basic information
-    name: str
-    nationality: str
-    age: int
-    salary: int
-    role: str  # Primary role: Duelist, Controller, Sentinel, Initiator
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     
-    # Proficiencies
-    role_proficiency: Dict[str, int]  # Proficiency in each role (0-100)
-    agent_proficiency: Dict[str, int]  # Proficiency with each agent (0-100)
+    # Basic Information
+    first_name = Column(String)
+    last_name = Column(String)
+    gamer_tag = Column(String)
+    age = Column(Integer)
+    nationality = Column(String)
+    region = Column(String)
+    primary_role = Column(String)  # Duelist, Controller, Sentinel, Initiator
+    salary = Column(Integer)
+    
+    # Team relationship
+    team_id = Column(String, ForeignKey("teams.id"), nullable=True)
+    team = relationship("Team", back_populates="players")
+    is_starter = Column(Boolean, default=True)
     
     # Core stats (0-100)
-    aim: int  # Raw aim skill
-    game_sense: int  # Game understanding and decision making
-    movement: int  # Movement and positioning skill
-    utility_usage: int  # Ability to use abilities effectively
-    communication: int  # Communication and teamwork
-    clutch: int  # Performance in clutch situations
+    aim = Column(Float, default=50.0)
+    game_sense = Column(Float, default=50.0)
+    movement = Column(Float, default=50.0)
+    utility_usage = Column(Float, default=50.0)
+    communication = Column(Float, default=50.0)
+    clutch = Column(Float, default=50.0)
+    
+    # Proficiencies
+    role_proficiencies = Column(JSON, default=dict)  # Dict[str, float]
+    agent_proficiencies = Column(JSON, default=dict)  # Dict[str, float]
     
     # Dynamic stats
-    form: int  # Current form (0-100)
-    fatigue: int  # Current fatigue level (0-100)
-    morale: int  # Current morale (0-100)
+    form = Column(Float, default=75.0)
+    fatigue = Column(Float, default=0.0)
+    morale = Column(Float, default=75.0)
+    
+    # Career stats
+    matches_played = Column(Integer, default=0)
+    kills = Column(Integer, default=0)
+    deaths = Column(Integer, default=0)
+    assists = Column(Integer, default=0)
+    rounds_played = Column(Integer, default=0)
+    first_bloods = Column(Integer, default=0)
+    clutches_won = Column(Integer, default=0)
+    win_count = Column(Integer, default=0)
+    loss_count = Column(Integer, default=0)
     
     # Metadata
-    created_at: datetime
-    updated_at: datetime
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Optional fields with defaults
-    matches_played: int = 0
-    kills: int = 0
-    deaths: int = 0
-    assists: int = 0
-    rounds_played: int = 0
-    first_bloods: int = 0
-    clutches_won: int = 0
-    team_id: Optional[str] = None
+    # Relationships
+    match_performances = relationship("app.models.match.MatchPerformanceModel", primaryjoin="Player.id==app.models.match.MatchPerformanceModel.player_id", 
+                                     foreign_keys="app.models.match.MatchPerformanceModel.player_id")
     
     @property
     def kd_ratio(self) -> float:
@@ -63,6 +83,14 @@ class Player:
         if self.kills == 0:
             return 0.0
         return (self.first_bloods / self.kills) * 100
+    
+    @property
+    def win_rate(self) -> float:
+        """Calculate win rate percentage."""
+        total_matches = self.win_count + self.loss_count
+        if total_matches == 0:
+            return 0.0
+        return (self.win_count / total_matches) * 100
     
     @property
     def average_combat_score(self) -> float:
@@ -109,4 +137,46 @@ class Player:
         fatigue_modifier = ((100 - self.fatigue) / 100.0) * 0.1
         morale_modifier = (self.morale / 100.0) * 0.1
         
-        return base_rating * (1 + form_modifier - fatigue_modifier + morale_modifier) 
+        return base_rating * (1 + form_modifier - fatigue_modifier + morale_modifier)
+    
+    def to_dict(self):
+        """Convert to dictionary representation for API responses."""
+        return {
+            "id": self.id,
+            "firstName": self.first_name,
+            "lastName": self.last_name,
+            "gamerTag": self.gamer_tag,
+            "age": self.age,
+            "nationality": self.nationality,
+            "region": self.region,
+            "primaryRole": self.primary_role,
+            "salary": self.salary,
+            "coreStats": {
+                "aim": self.aim,
+                "gameSense": self.game_sense,
+                "movement": self.movement,
+                "utilityUsage": self.utility_usage,
+                "communication": self.communication,
+                "clutch": self.clutch
+            },
+            "roleProficiencies": self.role_proficiencies,
+            "agentProficiencies": self.agent_proficiencies,
+            "careerStats": {
+                "matchesPlayed": self.matches_played,
+                "kills": self.kills,
+                "deaths": self.deaths,
+                "assists": self.assists,
+                "firstBloods": self.first_bloods,
+                "clutches": self.clutches_won,
+                "winRate": self.win_rate,
+                "kdRatio": self.kd_ratio,
+                "kdaRatio": self.kda_ratio,
+                "firstBloodRate": self.first_blood_percentage,
+                "clutchRate": self.clutches_won / max(1, self.matches_played) * 100
+            },
+            "form": self.form,
+            "fatigue": self.fatigue,
+            "morale": self.morale,
+            "isStarter": self.is_starter,
+            "teamId": self.team_id
+        } 

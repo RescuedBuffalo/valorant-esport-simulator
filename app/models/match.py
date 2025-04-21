@@ -90,10 +90,10 @@ class Match(Base):
     team_a = relationship("Team", foreign_keys=[team_a_id], back_populates="home_matches")
     team_b = relationship("Team", foreign_keys=[team_b_id], back_populates="away_matches")
     tournament = relationship("Tournament", back_populates="matches")
-    performances = relationship("MatchPerformance", back_populates="match")
+    performances = relationship("app.models.match.MatchPerformanceModel", back_populates="match")
     mvp = relationship("Player", foreign_keys=[mvp_player_id])
 
-class MatchPerformance(Base):
+class MatchPerformanceModel(Base):
     """Individual player performance in a match."""
     __tablename__ = "match_performances"
     
