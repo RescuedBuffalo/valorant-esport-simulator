@@ -19,6 +19,8 @@ import {
   Grid,
   Divider,
   Tooltip,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -28,6 +30,12 @@ import UploadIcon from '@mui/icons-material/Upload';
 import EditIcon from '@mui/icons-material/Edit';
 import ClearIcon from '@mui/icons-material/Clear';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import BrushIcon from '@mui/icons-material/Brush';
+import PolylineIcon from '@mui/icons-material/Polyline';
+import UndoIcon from '@mui/icons-material/Undo';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
+import { v4 as uuidv4 } from 'uuid';
 
 // Map area types with colors
 const AREA_TYPES = {
@@ -45,6 +53,19 @@ interface Point {
   y: number;
 }
 
+// New interface for grid cells when using paint brush
+interface GridCell {
+  x: number;
+  y: number;
+  gridX: number;
+  gridY: number;
+}
+
+// Action for undo history
+type UndoAction = 
+  | { type: 'ADD_POLYGON_POINT'; pointIndex: number; areaId: string | null }
+  | { type: 'PAINT_CELL'; cell: GridCell; color: string };
+
 interface MapArea {
   id: string;
   name: string;
@@ -52,6 +73,7 @@ interface MapArea {
   color: string;
   points: Point[];
   description?: string;
+  cells?: GridCell[]; // Optional cells for painted areas
 }
 
 interface MapData {
@@ -91,10 +113,19 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [mapName, setMapName] = useState('New Map');
   const [isSaving, setIsSaving] = useState(false);
   
+  // New state for paint brush and undo functionality
+  const [drawMode, setDrawMode] = useState<'polygon' | 'brush'>('polygon');
+  const [isPainting, setIsPainting] = useState(false);
+  const [tempPaintedCells, setTempPaintedCells] = useState<GridCell[]>([]);
+  const [gridSize, setGridSize] = useState(20); // Grid cell size
+  const [undoHistory, setUndoHistory] = useState<UndoAction[]>([]);
+  const [currentPaintColor, setCurrentPaintColor] = useState(AREA_TYPES['connector']);
+  
   // Draw the map whenever data changes
   useEffect(() => {
+    console.log(`State updated - drawMode: ${drawMode}, tempPaintedCells: ${tempPaintedCells.length}, isCreatingArea: ${isCreatingArea}, isPainting: ${isPainting}`);
     drawMap();
-  }, [mapData, activeAreaId, isCreatingArea, tempPoints]);
+  }, [mapData, activeAreaId, isCreatingArea, tempPoints, tempPaintedCells, drawMode, isPainting]);
   
   // Draw the map on the canvas
   const drawMap = () => {
@@ -110,15 +141,34 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     // Draw background grid
     drawGrid(ctx, canvas.width, canvas.height);
     
+    // Log drawing state
+    console.log(`Drawing map with ${mapData.areas.length} areas, activeAreaId: ${activeAreaId}, tempPaintedCells: ${tempPaintedCells.length}`);
+    
     // Draw all areas
     mapData.areas.forEach(area => {
       const isActive = area.id === activeAreaId;
-      drawArea(ctx, area, isActive);
+      
+      // Draw polygon areas
+      if (area.points && area.points.length >= 3) {
+        drawArea(ctx, area, isActive);
+      }
+      
+      // Draw painted areas (cells)
+      if (area.cells && area.cells.length > 0) {
+        console.log(`Drawing area ${area.id} with ${area.cells.length} cells, color: ${area.color}`);
+        drawPaintedCells(ctx, area.cells, area.color, isActive);
+      }
     });
     
     // Draw area being created
     if (isCreatingArea && tempPoints.length > 0) {
       drawTempArea(ctx, tempPoints);
+    }
+    
+    // Draw temporary painted cells when using brush
+    if (tempPaintedCells.length > 0) {
+      console.log(`Drawing ${tempPaintedCells.length} temporary painted cells with color ${currentPaintColor}`);
+      drawPaintedCells(ctx, tempPaintedCells, currentPaintColor, true);
     }
   };
   
@@ -126,8 +176,6 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#8c8c8c';
     ctx.lineWidth = 0.5;
-    
-    const gridSize = 20;
     
     // Draw vertical lines
     for (let x = 0; x <= width; x += gridSize) {
@@ -144,6 +192,20 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
+  };
+  
+  // Draw painted cells
+  const drawPaintedCells = (ctx: CanvasRenderingContext2D, cells: GridCell[], color: string, isActive: boolean) => {
+    console.log(`Drawing ${cells.length} painted cells with color ${color}`);
+    cells.forEach(cell => {
+      ctx.fillStyle = color + (isActive ? 'FF' : '99'); // Full or 60% opacity
+      ctx.fillRect(cell.x, cell.y, gridSize, gridSize);
+      
+      // Draw cell border
+      ctx.strokeStyle = isActive ? '#ffffff' : '#cccccc';
+      ctx.lineWidth = isActive ? 2 : 1;
+      ctx.strokeRect(cell.x, cell.y, gridSize, gridSize);
+    });
   };
   
   // Draw a map area
@@ -201,10 +263,17 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       ctx.lineTo(points[i].x, points[i].y);
     }
     
-    // If we're actively creating, draw a line from the last point to the mouse
-    if (lastMousePos && isCreatingArea) {
-      ctx.lineTo(lastMousePos.x, lastMousePos.y);
+    if (points.length > 2) {
+      // Close the path if we have enough points
+      ctx.closePath();
+      ctx.fillStyle = currentPaintColor + '80'; // 50% opacity
+      ctx.fill();
     }
+    
+    // Draw the line
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
     
     // Draw points
     points.forEach(point => {
@@ -216,33 +285,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       ctx.lineWidth = 1;
       ctx.stroke();
     });
-    
-    // Draw lines
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
-    // Close the shape if we have enough points
-    if (points.length >= 3) {
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-      }
-      
-      ctx.closePath();
-      ctx.fillStyle = '#ffffff33'; // White with 20% opacity
-      ctx.fill();
-    }
   };
   
-  // Calculate centroid of a polygon
+  // Calculate the centroid of a polygon
   const calculateCentroid = (points: Point[]): Point => {
-    if (points.length === 0) return { x: 0, y: 0 };
-    
     let sumX = 0;
     let sumY = 0;
     
@@ -257,25 +303,123 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     };
   };
   
+  // Get mouse coordinates relative to the canvas with improved accuracy
+  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | MouseEvent): { x: number, y: number } => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    
+    const rect = canvas.getBoundingClientRect();
+    
+    // Calculate the scale factors in case the canvas is being displayed at a different size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // Get relative mouse position and apply scaling
+    let x = (e.clientX - rect.left) * scaleX;
+    let y = (e.clientY - rect.top) * scaleY;
+    
+    // Apply boundary checks to ensure coordinates stay within canvas
+    x = Math.max(0, Math.min(x, canvas.width));
+    y = Math.max(0, Math.min(y, canvas.height));
+    
+    console.log(`Raw mouse at (${e.clientX}, ${e.clientY}), canvas coordinates: (${x.toFixed(2)}, ${y.toFixed(2)})`);
+    
+    return { x, y };
+  };
+  
+  // Get cell coordinates from mouse position with proper snapping to grid
+  const getCellFromPosition = (x: number, y: number): GridCell => {
+    // Make sure to get the exact grid position by properly snapping to grid
+    const gridX = Math.floor(x / gridSize);
+    const gridY = Math.floor(y / gridSize);
+    
+    // Calculate the exact cell coordinates
+    const cellX = gridX * gridSize;
+    const cellY = gridY * gridSize;
+    
+    // Ensure these values are within canvas boundaries
+    const safeGridX = Math.max(0, Math.min(gridX, Math.floor(canvasRef.current?.width || 1200) / gridSize - 1));
+    const safeGridY = Math.max(0, Math.min(gridY, Math.floor(canvasRef.current?.height || 1200) / gridSize - 1));
+    const safeCellX = safeGridX * gridSize;
+    const safeCellY = safeGridY * gridSize;
+    
+    console.log(`Converting position (${x}, ${y}) to grid (${safeGridX}, ${safeGridY}) at cell (${safeCellX}, ${safeCellY})`);
+    
+    return {
+      x: safeCellX,
+      y: safeCellY,
+      gridX: safeGridX,
+      gridY: safeGridY
+    };
+  };
+  
+  // Check if a cell already exists in the current painted cells
+  const cellExists = (cells: GridCell[], newCell: GridCell): boolean => {
+    const exists = cells.some(cell => cell.gridX === newCell.gridX && cell.gridY === newCell.gridY);
+    console.log(`Checking if cell (${newCell.gridX}, ${newCell.gridY}) exists: ${exists}`);
+    return exists;
+  };
+  
+  // Keep track of the last valid cell to handle fast movement
+  const [lastValidCell, setLastValidCell] = useState<GridCell | null>(null);
+  
   // Handle mouse down for drawing or selecting
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = getCanvasCoordinates(e);
     
-    // If we're creating a new area
+    console.log(`MouseDown at (${x}, ${y}), drawMode: ${drawMode}`);
+    
+    // If we're in paint brush mode
+    if (drawMode === 'brush') {
+      console.log("Brush tool is active, processing click");
+      
+      // Add the clicked cell
+      const cell = getCellFromPosition(x, y);
+      setLastValidCell(cell); // Update the last valid cell
+      
+      console.log(`Adding cell at grid position (${cell.gridX}, ${cell.gridY})`);
+      
+      // Only add if not already in tempPaintedCells
+      if (!cellExists(tempPaintedCells, cell)) {
+        console.log(`Cell is new, adding to tempPaintedCells (now ${tempPaintedCells.length + 1} cells)`);
+        const updatedCells = [...tempPaintedCells, cell];
+        setTempPaintedCells(updatedCells);
+        console.log("Updated tempPaintedCells:", updatedCells);
+        
+        // Add to undo history
+        setUndoHistory([...undoHistory, { 
+          type: 'PAINT_CELL', 
+          cell,
+          color: currentPaintColor
+        }]);
+      } else {
+        console.log("Cell already exists in tempPaintedCells, not adding");
+      }
+      return;
+    }
+    
+    // If we're creating a new area with polygon tool
     if (isCreatingArea) {
-      setTempPoints([...tempPoints, { x, y }]);
+      const newPoint = { x, y };
+      setTempPoints([...tempPoints, newPoint]);
+      
+      // Add to undo history
+      setUndoHistory([...undoHistory, { 
+        type: 'ADD_POLYGON_POINT', 
+        pointIndex: tempPoints.length,
+        areaId: null
+      }]);
+      
       return;
     }
     
     // Check if we're clicking on a point of the active area for dragging
     if (activeAreaId) {
       const activeArea = mapData.areas.find(area => area.id === activeAreaId);
-      if (activeArea) {
+      if (activeArea && activeArea.points) {
         const pointIndex = activeArea.points.findIndex(
           point => Math.hypot(point.x - x, point.y - y) < 10
         );
@@ -292,10 +436,22 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     // Check if we're clicking inside an area to select it
     for (let i = mapData.areas.length - 1; i >= 0; i--) {
       const area = mapData.areas[i];
-      if (isPointInPolygon({ x, y }, area.points)) {
+      
+      // Check polygon areas
+      if (area.points && area.points.length >= 3 && isPointInPolygon({ x, y }, area.points)) {
         setActiveAreaId(area.id);
         setLastMousePos({ x, y });
         return;
+      }
+      
+      // Check painted areas (cells)
+      if (area.cells && area.cells.length > 0) {
+        const cell = getCellFromPosition(x, y);
+        if (cellExists(area.cells, cell)) {
+          setActiveAreaId(area.id);
+          setLastMousePos({ x, y });
+          return;
+        }
       }
     }
     
@@ -303,16 +459,41 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     setActiveAreaId(null);
   };
   
+  // Track if mouse is currently over the canvas
+  const [isMouseOverCanvas, setIsMouseOverCanvas] = useState(false);
+  
   // Handle mouse move
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    setIsMouseOverCanvas(true);
+    
+    const { x, y } = getCanvasCoordinates(e);
     
     setLastMousePos({ x, y });
+    
+    // If we're painting with brush (only in drag mode)
+    if (e.buttons === 1 && drawMode === 'brush') {
+      console.log(`MouseMove with button pressed, attempting to paint at (${x}, ${y})`);
+      const cell = getCellFromPosition(x, y);
+      setLastValidCell(cell); // Update the last valid cell
+      
+      // Only add cell if it doesn't already exist in tempPaintedCells
+      if (!cellExists(tempPaintedCells, cell)) {
+        console.log(`Adding dragged cell at (${cell.gridX}, ${cell.gridY})`);
+        const updatedCells = [...tempPaintedCells, cell];
+        setTempPaintedCells(updatedCells);
+        
+        // Add to undo history
+        setUndoHistory([...undoHistory, { 
+          type: 'PAINT_CELL', 
+          cell,
+          color: currentPaintColor
+        }]);
+      }
+      return;
+    }
     
     // If we're dragging a point
     if (isDraggingPoint && draggingPointIndex !== null && draggingAreaId) {
@@ -334,11 +515,186 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     }
   };
   
+  // Handle mouse entering canvas
+  const handleCanvasMouseEnter = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsMouseOverCanvas(true);
+    console.log("Mouse entered canvas");
+    
+    // If button is pressed and we have a last valid cell, continue from there
+    if (e.buttons === 1 && drawMode === 'brush' && lastValidCell) {
+      const { x, y } = getCanvasCoordinates(e);
+      console.log(`Mouse re-entered with button down, connecting from last valid cell at (${lastValidCell.gridX}, ${lastValidCell.gridY})`);
+      
+      // Use linear interpolation to fill in missing cells between last valid cell and current position
+      const currentCell = getCellFromPosition(x, y);
+      interpolateCells(lastValidCell, currentCell);
+    }
+  };
+  
+  // Handle mouse leaving canvas
+  const handleCanvasMouseLeave = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsMouseOverCanvas(false);
+    console.log("Mouse left canvas");
+    handleCanvasMouseUp();
+  };
+  
+  // Interpolate cells between two points for continuous painting when mouse moves fast
+  const interpolateCells = (startCell: GridCell, endCell: GridCell) => {
+    console.log(`Interpolating cells from (${startCell.gridX}, ${startCell.gridY}) to (${endCell.gridX}, ${endCell.gridY})`);
+    
+    // Calculate the differences and determine number of steps needed for interpolation
+    const dx = endCell.gridX - startCell.gridX;
+    const dy = endCell.gridY - startCell.gridY;
+    const steps = Math.max(Math.abs(dx), Math.abs(dy));
+    
+    if (steps <= 1) {
+      console.log("No interpolation needed, cells are adjacent");
+      return; // No interpolation needed for adjacent cells
+    }
+    
+    console.log(`Interpolating ${steps} steps`);
+    const newCells: GridCell[] = [];
+    
+    // Generate the interpolated cells
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const interpGridX = Math.round(startCell.gridX + dx * t);
+      const interpGridY = Math.round(startCell.gridY + dy * t);
+      const interpCellX = interpGridX * gridSize;
+      const interpCellY = interpGridY * gridSize;
+      
+      const interpCell: GridCell = {
+        x: interpCellX,
+        y: interpCellY,
+        gridX: interpGridX,
+        gridY: interpGridY
+      };
+      
+      // Only add if the cell doesn't already exist in tempPaintedCells
+      if (!cellExists(tempPaintedCells, interpCell) && 
+          !newCells.some(cell => cell.gridX === interpCell.gridX && cell.gridY === interpCell.gridY)) {
+        console.log(`Adding interpolated cell at (${interpCell.gridX}, ${interpCell.gridY})`);
+        newCells.push(interpCell);
+      }
+    }
+    
+    if (newCells.length > 0) {
+      // Add all the new cells at once
+      console.log(`Adding ${newCells.length} interpolated cells`);
+      setTempPaintedCells([...tempPaintedCells, ...newCells]);
+      
+      // Add each cell to the undo history
+      const newUndoHistory = [...undoHistory];
+      newCells.forEach(cell => {
+        newUndoHistory.push({
+          type: 'PAINT_CELL',
+          cell,
+          color: currentPaintColor
+        });
+      });
+      setUndoHistory(newUndoHistory);
+    }
+  };
+  
   // Handle mouse up
   const handleCanvasMouseUp = () => {
+    console.log("Canvas mouseUp event");
     setIsDraggingPoint(false);
     setDraggingPointIndex(null);
     setDraggingAreaId(null);
+  };
+  
+  // Add event listeners for window mouse up to handle cases when mouse is released outside canvas
+  useEffect(() => {
+    const handleWindowMouseUp = (e: MouseEvent) => {
+      if (!isMouseOverCanvas) {
+        console.log("Window mouseUp event (outside canvas)");
+        handleCanvasMouseUp();
+      }
+    };
+    
+    // Add global event listeners
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [isMouseOverCanvas]);
+  
+  // Perform undo action
+  const handleUndo = () => {
+    if (undoHistory.length === 0) return;
+    
+    const lastAction = undoHistory[undoHistory.length - 1];
+    
+    if (lastAction.type === 'ADD_POLYGON_POINT') {
+      // Remove the last point from tempPoints
+      if (tempPoints.length > 0) {
+        setTempPoints(tempPoints.slice(0, -1));
+      }
+    } else if (lastAction.type === 'PAINT_CELL') {
+      // Remove the last painted cell
+      if (tempPaintedCells.length > 0) {
+        setTempPaintedCells(tempPaintedCells.slice(0, -1));
+      }
+    }
+    
+    // Remove the last action from history
+    setUndoHistory(undoHistory.slice(0, -1));
+  };
+  
+  // Start painting with brush
+  const startPaintingMode = () => {
+    console.log("Activating brush tool");
+    setDrawMode('brush');
+    setIsCreatingArea(false);
+    setTempPoints([]);
+    setActiveAreaId(null);
+    // Initialize but don't clear existing painted cells
+    if (tempPaintedCells.length === 0) {
+      console.log("Initializing empty tempPaintedCells array");
+    } else {
+      console.log(`Keeping ${tempPaintedCells.length} existing painted cells`);
+    }
+  };
+  
+  // Start polygon drawing mode
+  const startPolygonMode = () => {
+    setDrawMode('polygon');
+    setIsPainting(false);
+    setTempPaintedCells([]);
+  };
+  
+  // Finish painting with brush
+  const finishPainting = () => {
+    console.log(`Finishing painting with ${tempPaintedCells.length} cells`);
+    if (tempPaintedCells.length === 0) {
+      showSnackbar('No cells painted', 'error');
+      return;
+    }
+    
+    setIsPainting(false);
+    const newAreaId = `area-${Date.now()}`;
+    console.log(`Creating new area with ID: ${newAreaId}`);
+    setCurrentArea({
+      id: newAreaId,
+      name: 'Painted Area',
+      type: 'connector',
+      color: currentPaintColor,
+      points: [],
+      cells: tempPaintedCells
+    });
+    setShowAreaForm(true);
+  };
+  
+  // Cancel painting
+  const cancelPainting = () => {
+    console.log("Canceling painting, clearing cells");
+    setIsPainting(false);
+    setTempPaintedCells([]);
+    // Clear undo history related to this painting session
+    setUndoHistory(undoHistory.filter(action => action.type !== 'PAINT_CELL'));
   };
   
   // Check if a point is inside a polygon
@@ -361,14 +717,15 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     return inside;
   };
   
-  // Start creating a new area
+  // Start creating a new area with polygon tool
   const startCreatingArea = () => {
+    setDrawMode('polygon');
     setIsCreatingArea(true);
     setTempPoints([]);
     setActiveAreaId(null);
   };
   
-  // Finish creating the current area
+  // Finish creating the current area with polygon tool
   const finishCreatingArea = () => {
     if (tempPoints.length < 3) {
       showSnackbar('Need at least 3 points to create an area', 'error');
@@ -380,7 +737,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       id: `area-${Date.now()}`,
       name: 'New Area',
       type: 'connector',
-      color: AREA_TYPES['connector'],
+      color: currentPaintColor,
       points: tempPoints
     });
     setShowAreaForm(true);
@@ -390,6 +747,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const cancelCreatingArea = () => {
     setIsCreatingArea(false);
     setTempPoints([]);
+    // Clear undo history related to this polygon creation
+    setUndoHistory(undoHistory.filter(action => 
+      action.type !== 'ADD_POLYGON_POINT' || action.areaId !== null
+    ));
   };
   
   // Save area after form submission
@@ -417,6 +778,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     setShowAreaForm(false);
     setCurrentArea(null);
     setTempPoints([]);
+    setTempPaintedCells([]);
+    // Clear undo history after saving
+    setUndoHistory([]);
   };
   
   // Edit an existing area
@@ -465,121 +829,70 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     }
   };
   
-  // Save map to backend API
+  // Save map to the backend
   const saveMapToBackend = async () => {
-    if (mapData.areas.length < 1) {
-      showSnackbar('Add at least one area to the map', 'error');
-      return;
-    }
-    
-    if (!mapName.trim()) {
-      showSnackbar('Please provide a map name', 'error');
-      return;
-    }
-    
-    // Prepare data to send
-    const dataToSend = {
-      ...mapData,
-      name: mapName,
-      sites: ['A', 'B'], // Default sites
-      image_url: `/static/maps/${mapName.toLowerCase().replace(/\s+/g, '_')}.jpg`,
-    };
-    
-    setIsSaving(true);
-
     try {
-      // Save locally first to ensure we have the map data
-      const mapJson = JSON.stringify(dataToSend, null, 2);
-      const mapId = mapName.toLowerCase().replace(/\s+/g, '_');
-      localStorage.setItem(`map_${mapId}`, mapJson);
-      console.log(`Map saved to localStorage with key: map_${mapId}`);
+      setIsSaving(true);
       
-      // Try to save to server
-      console.log('Attempting to save map to server:', dataToSend);
-      
-      const response = await fetch('/api/maps/', {
+      const response = await fetch('/api/maps', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(dataToSend),
+        body: JSON.stringify({
+          ...mapData,
+          name: mapName
+        })
       });
       
-      console.log('Server response status:', response.status);
-      const responseText = await response.text();
-      console.log('Server response text:', responseText);
-      
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        console.error('Error parsing server response:', e);
-        result = { success: false, error: 'Invalid server response' };
+      if (!response.ok) {
+        throw new Error('Failed to save map to server');
       }
       
-      if (result.success) {
-        console.log('Map successfully saved to server');
-        showSnackbar('Map saved successfully to server', 'success');
-      } else {
-        console.warn('Server save failed, but map saved locally:', result.error);
-        showSnackbar(`Map saved locally (server error: ${result.error || 'Unknown error'})`, 'warning');
-      }
+      const result = await response.json();
       
-      // Also download a local copy
-      const blob = new Blob([mapJson], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${mapName.toLowerCase().replace(/\s+/g, '_')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      // Call the callback if provided
-      if (onSaveComplete) {
-        onSaveComplete(dataToSend);
-      }
-    } catch (error) {
-      console.error('Error saving map:', error);
-      showSnackbar(`Saved locally (server error: ${error instanceof Error ? error.message : 'Connection failed'})`, 'warning');
-      
-      // Make sure to call the callback so we return to maps view
-      if (onSaveComplete) {
-        onSaveComplete(dataToSend);
-      }
-    } finally {
       setIsSaving(false);
+      showSnackbar('Map saved to server successfully', 'success');
+      
+      if (onSaveComplete) {
+        onSaveComplete({
+          ...mapData,
+          name: mapName
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      setIsSaving(false);
+      showSnackbar('Error saving map to server', 'error');
+      console.error('Error saving map to server:', error);
+      return null;
     }
   };
   
-  // Load a map from JSON file
-  const loadMap = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Load map from file
+  const handleLoadMapFromFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const content = event.target?.result as string;
-        const loadedMap = JSON.parse(content) as MapData;
-        
-        setMapData(loadedMap);
-        setMapName(loadedMap.name);
-        setActiveAreaId(null);
+        const mapData = JSON.parse(event.target?.result as string) as MapData;
+        setMapData(mapData);
+        setMapName(mapData.name);
         showSnackbar('Map loaded successfully', 'success');
       } catch (error) {
-        showSnackbar('Error loading map', 'error');
-        console.error('Error loading map:', error);
+        showSnackbar('Error loading map file', 'error');
+        console.error('Error loading map file:', error);
       }
     };
     
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
   };
   
-  // Show a snackbar message
-  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info' | 'warning') => {
+  // Display snackbar with message
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info' | 'warning' = 'info') => {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
     setSnackbarOpen(true);
@@ -590,76 +903,233 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     setSnackbarOpen(false);
   };
   
+  // Set area type and automatically set corresponding color
+  const handleSetAreaType = (type: string) => {
+    if (!currentArea) return;
+    
+    const color = AREA_TYPES[type as keyof typeof AREA_TYPES] || '#cccccc';
+    setCurrentArea({
+      ...currentArea,
+      type,
+      color
+    });
+  };
+  
+  // Set current paint color based on area type
+  const handleSetPaintColor = (type: string) => {
+    const color = AREA_TYPES[type as keyof typeof AREA_TYPES] || '#cccccc';
+    setCurrentPaintColor(color);
+  };
+  
+  // Explicitly forceUpdate function to refresh the canvas when needed
+  const forceCanvasUpdate = () => {
+    console.log("Forcing canvas update");
+    drawMap();
+  };
+  
   return (
-    <Box sx={{ padding: 2 }}>
-      <Paper elevation={3} sx={{ p: 2, mb: 2 }}>
-        <Typography variant="h5" gutterBottom>Map Builder</Typography>
-        
-        <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
+    <Box sx={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      height: '100%', 
+      width: '100%' 
+    }}>
+      {/* Toolbar */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={4}>
             <TextField
               fullWidth
               label="Map Name"
               value={mapName}
               onChange={(e) => setMapName(e.target.value)}
+              variant="outlined"
+              size="small"
             />
           </Grid>
+          
           <Grid item xs={12} md={8}>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="contained"
-                startIcon={<SaveIcon />}
-                onClick={saveMap}
-                color="primary"
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {/* Drawing Mode Selector */}
+              <ToggleButtonGroup
+                value={drawMode}
+                exclusive
+                size="small"
+                aria-label="drawing mode"
               >
-                Save Map Locally
+                <ToggleButton 
+                  value="polygon" 
+                  onClick={startPolygonMode}
+                  aria-label="polygon tool"
+                >
+                  <Tooltip title="Polygon Tool">
+                    <PolylineIcon />
+                  </Tooltip>
+                </ToggleButton>
+                <ToggleButton 
+                  value="brush" 
+                  onClick={() => {
+                    console.log("Brush tool button clicked");
+                    startPaintingMode();
+                    // Force redraw after short delay to ensure state is updated
+                    setTimeout(forceCanvasUpdate, 100);
+                  }}
+                  aria-label="brush tool"
+                >
+                  <Tooltip title="Brush Tool (Click to paint squares)">
+                    <BrushIcon />
+                  </Tooltip>
+                </ToggleButton>
+              </ToggleButtonGroup>
+              
+              {/* Color Selector */}
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel id="area-type-label">Area Type</InputLabel>
+                <Select
+                  labelId="area-type-label"
+                  value={Object.keys(AREA_TYPES).find(
+                    key => AREA_TYPES[key as keyof typeof AREA_TYPES] === currentPaintColor
+                  ) || 'connector'}
+                  label="Area Type"
+                  onChange={(e) => handleSetPaintColor(e.target.value)}
+                  size="small"
+                >
+                  {Object.entries(AREA_TYPES).map(([type, color]) => (
+                    <MenuItem key={type} value={type}>
+                      <Box
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          mr: 1,
+                          backgroundColor: color,
+                          display: 'inline-block',
+                          verticalAlign: 'text-bottom',
+                        }}
+                      />
+                      {type}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              
+              <Button 
+                variant="contained" 
+                color="primary" 
+                startIcon={<AddIcon />}
+                onClick={startCreatingArea}
+                disabled={isCreatingArea || isPainting}
+                size="small"
+              >
+                Add Area
               </Button>
+              
+              <Tooltip title="Undo Last Action">
+                <span>
+                  <IconButton 
+                    onClick={handleUndo} 
+                    disabled={undoHistory.length === 0}
+                    size="small"
+                  >
+                    <UndoIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              
+              <Divider orientation="vertical" flexItem />
+              
+              {activeAreaId && (
+                <>
+                  <Button 
+                    variant="outlined" 
+                    startIcon={<EditIcon />}
+                    onClick={handleEditArea}
+                    size="small"
+                  >
+                    Edit
+                  </Button>
+                  <Button 
+                    variant="outlined" 
+                    color="error" 
+                    startIcon={<DeleteIcon />}
+                    onClick={handleDeleteArea}
+                    size="small"
+                  >
+                    Delete
+                  </Button>
+                </>
+              )}
+              
+              <Divider orientation="vertical" flexItem />
+              
               <Button
                 variant="contained"
+                color="success"
                 startIcon={<SaveIcon />}
                 onClick={saveMapToBackend}
-                color="secondary"
                 disabled={isSaving}
+                size="small"
               >
-                {isSaving ? 'Saving...' : 'Save to Server'}
+                Save to Server
               </Button>
+              
               <Button
                 variant="outlined"
-                startIcon={<UploadIcon />}
-                onClick={() => fileInputRef.current?.click()}
+                startIcon={<DownloadIcon />}
+                onClick={saveMap}
+                size="small"
               >
-                Load Map
+                Download
               </Button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                accept=".json"
-                onChange={loadMap}
-              />
+              
+              <Button
+                variant="outlined"
+                component="label"
+                startIcon={<UploadIcon />}
+                size="small"
+              >
+                Upload
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  hidden
+                  onChange={handleLoadMapFromFile}
+                />
+              </Button>
+
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => {
+                  console.log("Debug button clicked, current state:");
+                  console.log(`drawMode: ${drawMode}`);
+                  console.log(`tempPaintedCells: ${JSON.stringify(tempPaintedCells)}`);
+                  console.log(`isPainting: ${isPainting}`);
+                  console.log(`isCreatingArea: ${isCreatingArea}`);
+                  forceCanvasUpdate();
+                }}
+                size="small"
+              >
+                Debug State
+              </Button>
             </Box>
           </Grid>
         </Grid>
-        
-        <Divider sx={{ my: 2 }} />
-        
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="h6" gutterBottom>Tools</Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button
-              variant={isCreatingArea ? "contained" : "outlined"}
-              startIcon={<AddIcon />}
-              onClick={startCreatingArea}
-              disabled={isCreatingArea}
-            >
-              Add Area
-            </Button>
-            
+      </Paper>
+      
+      {/* Drawing Controls */}
+      {(isCreatingArea || isPainting || drawMode === 'brush') && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
             {isCreatingArea && (
               <>
+                <Typography variant="body1">
+                  Creating polygon area. Click to add points, at least 3 needed.
+                </Typography>
                 <Button
                   variant="contained"
                   color="success"
+                  startIcon={<CheckCircleIcon />}
                   onClick={finishCreatingArea}
                 >
                   Finish Area
@@ -667,6 +1137,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 <Button
                   variant="outlined"
                   color="error"
+                  startIcon={<CancelIcon />}
                   onClick={cancelCreatingArea}
                 >
                   Cancel
@@ -674,179 +1145,139 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
               </>
             )}
             
-            {activeAreaId && (
+            {drawMode === 'brush' && (
               <>
-                <Button
-                  variant="outlined"
-                  startIcon={<EditIcon />}
-                  onClick={handleEditArea}
-                >
-                  Edit Area
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={handleDeleteArea}
-                >
-                  Delete Area
-                </Button>
+                <Typography variant="body1">
+                  Brush tool active: Click cells to paint them. Hold and drag to paint multiple cells.
+                </Typography>
+                {tempPaintedCells.length > 0 && (
+                  <>
+                    <Button
+                      variant="contained"
+                      color="success"
+                      startIcon={<CheckCircleIcon />}
+                      onClick={finishPainting}
+                    >
+                      Save Painted Area
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      startIcon={<CancelIcon />}
+                      onClick={cancelPainting}
+                    >
+                      Clear
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </Box>
-        </Box>
+        </Paper>
+      )}
+      
+      {/* Canvas Container */}
+      <Paper sx={{ 
+        flex: 1, 
+        display: 'flex', 
+        flexDirection: 'column', 
+        overflow: 'hidden',
+        position: 'relative'
+      }}>
+        <canvas
+          ref={canvasRef}
+          width={1200}
+          height={1200}
+          style={{
+            backgroundColor: '#111111',
+            cursor: isCreatingArea ? 'crosshair' : (drawMode === 'brush' ? 'cell' : 'default')
+          }}
+          onMouseDown={(e) => {
+            console.log("Canvas mouseDown event");
+            handleCanvasMouseDown(e);
+          }}
+          onMouseMove={(e) => {
+            handleCanvasMouseMove(e);
+          }}
+          onMouseUp={() => {
+            console.log("Canvas mouseUp event");
+            handleCanvasMouseUp();
+          }}
+          onMouseEnter={(e) => {
+            handleCanvasMouseEnter(e);
+          }}
+          onMouseLeave={(e) => {
+            handleCanvasMouseLeave(e);
+          }}
+        />
       </Paper>
       
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={9}>
-          <Paper 
-            elevation={3} 
-            sx={{ 
-              p: 1, 
-              backgroundColor: '#1a1a1a',
-              border: '1px solid #333'
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              width={800}
-              height={600}
-              style={{ 
-                width: '100%', 
-                height: 'auto',
-                cursor: isCreatingArea ? 'crosshair' : (isDraggingPoint ? 'grabbing' : 'default')
-              }}
-              onMouseDown={handleCanvasMouseDown}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
-              onMouseLeave={handleCanvasMouseUp}
-            />
-            
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
-              {isCreatingArea 
-                ? "Click to add points. Need at least 3 points to create an area." 
-                : "Click on an area to select it. Drag points to reshape."}
-            </Typography>
-          </Paper>
-        </Grid>
-        
-        <Grid item xs={12} md={3}>
-          <Paper elevation={3} sx={{ p: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>Areas</Typography>
-            {mapData.areas.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No areas defined yet. Click "Add Area" to start.
-              </Typography>
-            ) : (
-              <Box sx={{ 
-                maxHeight: 550, 
-                overflowY: 'auto',
-                '& > :not(:last-child)': { mb: 1 }
-              }}>
-                {mapData.areas.map(area => (
-                  <Paper
-                    key={area.id}
-                    elevation={area.id === activeAreaId ? 3 : 1}
-                    sx={{
-                      p: 1,
-                      cursor: 'pointer',
-                      borderLeft: `4px solid ${area.color}`,
-                      backgroundColor: area.id === activeAreaId ? 'action.selected' : 'background.paper'
-                    }}
-                    onClick={() => setActiveAreaId(area.id)}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Typography variant="subtitle2">
-                        {area.name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {area.type}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                ))}
-              </Box>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-      
-      {/* Area Edit Dialog */}
-      <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)} maxWidth="sm" fullWidth>
+      {/* Area Dialog */}
+      <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)}>
         <DialogTitle>
-          {currentArea?.id.startsWith('area-') && !mapData.areas.some(a => a.id === currentArea?.id)
-            ? 'Add New Area'
-            : 'Edit Area'}
+          {currentArea?.id.startsWith('area-') ? 'Add New Area' : 'Edit Area'}
         </DialogTitle>
         <form onSubmit={handleSaveArea}>
           <DialogContent>
             <TextField
-              fullWidth
+              autoFocus
+              margin="dense"
               label="Area Name"
+              fullWidth
+              variant="outlined"
               value={currentArea?.name || ''}
-              onChange={(e) => setCurrentArea(prev => prev ? { ...prev, name: e.target.value } : null)}
-              margin="normal"
+              onChange={(e) => currentArea && setCurrentArea({ ...currentArea, name: e.target.value })}
               required
             />
             
-            <FormControl fullWidth margin="normal">
-              <InputLabel>Area Type</InputLabel>
+            <FormControl fullWidth margin="dense">
+              <InputLabel id="area-type-select-label">Area Type</InputLabel>
               <Select
-                value={currentArea?.type || ''}
-                onChange={(e) => {
-                  const type = e.target.value as string;
-                  setCurrentArea(prev => prev 
-                    ? { ...prev, type, color: AREA_TYPES[type as keyof typeof AREA_TYPES] } 
-                    : null
-                  );
-                }}
+                labelId="area-type-select-label"
+                value={currentArea?.type || 'connector'}
                 label="Area Type"
+                onChange={(e) => handleSetAreaType(e.target.value)}
                 required
               >
                 {Object.entries(AREA_TYPES).map(([type, color]) => (
                   <MenuItem key={type} value={type}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Box 
-                        sx={{ 
-                          width: 16, 
-                          height: 16, 
-                          backgroundColor: color, 
-                          mr: 1, 
-                          borderRadius: 0.5 
-                        }} 
-                      />
-                      {type.charAt(0).toUpperCase() + type.slice(1)}
-                    </Box>
+                    <Box
+                      sx={{
+                        width: 16,
+                        height: 16,
+                        mr: 1,
+                        backgroundColor: color,
+                        display: 'inline-block',
+                        verticalAlign: 'text-bottom',
+                      }}
+                    />
+                    {type}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
             
             <TextField
-              fullWidth
+              margin="dense"
               label="Description (Optional)"
-              value={currentArea?.description || ''}
-              onChange={(e) => setCurrentArea(prev => prev ? { ...prev, description: e.target.value } : null)}
-              margin="normal"
+              fullWidth
+              variant="outlined"
               multiline
-              rows={2}
+              rows={3}
+              value={currentArea?.description || ''}
+              onChange={(e) => currentArea && setCurrentArea({ ...currentArea, description: e.target.value })}
             />
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setShowAreaForm(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" color="primary">Save</Button>
+            <Button type="submit" variant="contained">Save</Button>
           </DialogActions>
         </form>
       </Dialog>
       
       {/* Snackbar for notifications */}
-      <Snackbar 
-        open={snackbarOpen} 
-        autoHideDuration={4000} 
-        onClose={handleSnackbarClose}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleSnackbarClose}>
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity}>
           {snackbarMessage}
         </Alert>
       </Snackbar>
