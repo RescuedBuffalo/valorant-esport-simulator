@@ -2,12 +2,9 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import MapBuilder from './MapBuilder';
 import '@testing-library/jest-dom';
-import ApiService from '../services/api';
 
-// Mock the ApiService
-jest.mock('../services/api', () => ({
-  post: jest.fn(),
-}));
+// Mock the fetch function
+global.fetch = jest.fn();
 
 // Mock utility functions
 jest.mock('../utils/metrics', () => ({
@@ -23,8 +20,11 @@ describe('MapBuilder Component', () => {
     // Reset mocks before each test
     jest.clearAllMocks();
     
-    // Mock ApiService to return a successful response
-    (ApiService.post as jest.Mock).mockResolvedValue({ success: true, map_id: 'test_map' });
+    // Mock fetch to return a successful response
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, map_id: 'test_map' }),
+    });
   });
 
   test('renders the MapBuilder component', () => {
@@ -51,8 +51,13 @@ describe('MapBuilder Component', () => {
     
     // Wait for the API call to complete
     await waitFor(() => {
-      expect(ApiService.post).toHaveBeenCalledTimes(1);
-      expect(ApiService.post).toHaveBeenCalledWith('/api/maps/', expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledWith('/api/maps/', expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }));
     });
     
     // The success message should appear
@@ -65,8 +70,11 @@ describe('MapBuilder Component', () => {
   });
 
   test('shows error message when save fails', async () => {
-    // Mock ApiService to return an error
-    (ApiService.post as jest.Mock).mockRejectedValue(new Error('Failed to save map'));
+    // Mock fetch to return an error response
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Failed to save map' }),
+    });
     
     render(<MapBuilder />);
     
@@ -76,7 +84,7 @@ describe('MapBuilder Component', () => {
     
     // Wait for the API call to complete
     await waitFor(() => {
-      expect(ApiService.post).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
     
     // The error message should appear

@@ -55,9 +55,6 @@ import { v4 as uuidv4 } from 'uuid';
 // Import our new MapDataViewer component
 import MapDataViewer from './MapDataViewer';
 
-// Import API service
-import ApiService from '../services/api';
-
 // Import metrics utilities
 import { 
   recordUserInteraction, 
@@ -1538,8 +1535,21 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       // Use the performance measuring wrapper
       const savedMap = await measureMapBuilderOperation(async () => {
         try {
-          // Use ApiService instead of fetch directly
-          const result = await ApiService.post('/api/maps/', mapToSave);
+          // Use native fetch API
+          const response = await fetch('/api/maps/', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(mapToSave),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Server responded with status: ${response.status}`);
+          }
+          
+          const result = await response.json();
           console.log("Map saved to server:", result);
           return mapToSave;
         } catch (error) {
