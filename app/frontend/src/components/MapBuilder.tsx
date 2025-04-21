@@ -1537,19 +1537,19 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
         try {
           // Use native fetch API
           const response = await fetch('/api/maps/', {
-            method: 'POST',
-            headers: {
+        method: 'POST',
+        headers: {
               'Content-Type': 'application/json',
-            },
+        },
             body: JSON.stringify(mapToSave),
-          });
-          
-          if (!response.ok) {
+      });
+      
+      if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || `Server responded with status: ${response.status}`);
-          }
-          
-          const result = await response.json();
+      }
+      
+      const result = await response.json();
           console.log("Map saved to server:", result);
           return mapToSave;
         } catch (error) {
@@ -2460,7 +2460,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                     </Tooltip>
                   </ToggleButton>
                 </ToggleButtonGroup>
-              </FormControl>
+            </FormControl>
             
             <TextField
               margin="dense"

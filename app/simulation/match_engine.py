@@ -1273,7 +1273,7 @@ class MatchEngine:
                 return role
         
         # Default if agent not found
-        return 'Duelist'
+        return 'Duelist' 
 
     def _simulate_round_with_events(self) -> Dict[str, Any]:
         """
