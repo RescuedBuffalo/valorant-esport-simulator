@@ -10,10 +10,11 @@ from fastapi.responses import JSONResponse
 from app.core.analytics import Analytics
 from app.core.config import settings
 from app.db.session import engine
-from app.models import match_history
+from app.db.init_db import init_db
+from app.models import match_history, team, player
 
-# Create database tables
-match_history.Base.metadata.create_all(bind=engine)
+# Initialize the database
+init_db()
 
 # Configure logging
 logging.basicConfig(

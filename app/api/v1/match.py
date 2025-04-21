@@ -4,9 +4,9 @@ from pydantic import BaseModel
 import logging
 import traceback
 from app.simulation.match_engine import MatchEngine
-from app.api.v1.team import teams_db  # Import the teams database
 from app.db.session import get_db
 from app.repositories.match_repository import MatchRepository
+from app.repositories.team_repository import TeamRepository
 from sqlalchemy.orm import Session
 import uuid
 
@@ -18,80 +18,50 @@ class MatchRequest(BaseModel):
     team_a: str
     team_b: str
 
-def transform_for_engine(players: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Transform players from frontend format to match_engine expected format.
-    
-    Frontend format has:
-    - stats: {aim, game_sense, utility, leadership, clutch, movement}
-    
-    Engine expects:
-    - coreStats: {aim, gameSense, utilityUsage, communication, clutch, movement}
-    - careerStats: with kdRatio, clutchRate, firstBloodRate fields
-    """
-    transformed = []
+def transform_for_engine(players):
+    """Transform player data from database format to match engine format."""
+    engine_players = []
     for player in players:
-        # Create a copy to avoid modifying original data
-        transformed_player = player.copy()
-        
-        # If the player already has the right format, just use it
-        if "coreStats" in transformed_player and "careerStats" in transformed_player:
-            transformed.append(transformed_player)
-            continue
-            
-        # Create coreStats from stats
-        stats = player.get("stats", {})
-        transformed_player["coreStats"] = {
-            "aim": stats.get("aim", 50),
-            "gameSense": stats.get("game_sense", 50),
-            "utilityUsage": stats.get("utility", 50),
-            "communication": stats.get("leadership", 50),
-            "clutch": stats.get("clutch", 50),
-            "movement": stats.get("movement", 50)
-        }
-        
-        # Add careerStats if missing
-        if "careerStats" not in transformed_player:
-            # Convert form to win rate (form is 0-100, winRate is 0-1)
-            win_rate = player.get("form", 50) / 100 if "form" in player else 0.5
-            
-            transformed_player["careerStats"] = {
-                "matches": 20,  # Reasonable default
-                "wins": int(20 * win_rate),
-                "losses": int(20 * (1 - win_rate)),
-                "kills": 200,  # Reasonable default
-                "deaths": 180,
-                "assists": 100,
-                "kdRatio": stats.get("aim", 50) / 40,  # Base KD on aim stat
-                "acs": 220,  # Average combat score
-                "firstBloods": 30,
-                "clutches": 10,
-                "plants": 15,
-                "defuses": 8,
-                "firstBloodRate": stats.get("clutch", 50) / 250,  # Make it a percentage based on clutch stat
-                "clutchRate": stats.get("clutch", 50) / 150,  # Percentage based on clutch stat
-                "winRate": win_rate
+        # If player is already in the correct format, just use it directly
+        if isinstance(player, dict):
+            engine_players.append(player)
+        else:
+            # Assuming player is a database model instance, convert to dict
+            player_dict = player.to_dict() if hasattr(player, 'to_dict') else {
+                'id': player.id,
+                'firstName': player.first_name,
+                'lastName': player.last_name,
+                'gamerTag': player.gamer_tag,
+                'age': player.age,
+                'nationality': player.nationality,
+                'region': player.region,
+                'primaryRole': player.primary_role,
+                'salary': player.salary,
+                'coreStats': {
+                    'aim': player.aim,
+                    'gameSense': player.game_sense,
+                    'movement': player.movement,
+                    'utilityUsage': player.utility_usage,
+                    'communication': player.communication,
+                    'clutch': player.clutch
+                },
+                'roleProficiencies': player.role_proficiencies,
+                'agentProficiencies': player.agent_proficiencies,
+                'careerStats': {
+                    'matchesPlayed': player.matches_played,
+                    'kills': player.kills,
+                    'deaths': player.deaths,
+                    'assists': player.assists,
+                    'firstBloods': player.first_bloods,
+                    'clutches': player.clutches_won
+                }
             }
-        
-        # Ensure other required fields exist
-        if "id" not in transformed_player:
-            transformed_player["id"] = player.get("id", str(uuid.uuid4()))
-        if "firstName" not in transformed_player:
-            transformed_player["firstName"] = player.get("first_name", "Player")
-        if "lastName" not in transformed_player:
-            transformed_player["lastName"] = player.get("last_name", "Unknown")
-        if "primaryRole" not in transformed_player:
-            transformed_player["primaryRole"] = player.get("role", "Flex")
-        if "agentProficiencies" not in transformed_player:
-            transformed_player["agentProficiencies"] = player.get("agent_proficiencies", {})
-        
-        transformed.append(transformed_player)
-    
-    return transformed
+            engine_players.append(player_dict)
+    return engine_players
 
 @router.post("/simulate")
 async def simulate_match(match_req: MatchRequest, request: Request, db: Session = Depends(get_db)):
-    """Simulate a match between two teams using team names."""
+    """Simulate a match between two teams using team IDs or names."""
     logger.info(f"Match simulation requested: {match_req.team_a} vs {match_req.team_b}")
     
     # Log request details
@@ -100,61 +70,69 @@ async def simulate_match(match_req: MatchRequest, request: Request, db: Session 
     logger.debug(f"Request from: {client_host}, User-Agent: {user_agent}")
     
     try:
-        # Log available teams for debugging
-        team_names = [team["name"] for team in teams_db]
-        logger.debug(f"Available teams: {team_names}")
+        # Try to find teams by ID first, then by name
+        team_a_db = TeamRepository.get_team_by_id(db, match_req.team_a)
+        if not team_a_db:
+            team_a_db = TeamRepository.get_team_by_name(db, match_req.team_a)
+            
+        team_b_db = TeamRepository.get_team_by_id(db, match_req.team_b)
+        if not team_b_db:
+            team_b_db = TeamRepository.get_team_by_name(db, match_req.team_b)
         
-        # Find teams by name
-        team_a = next((team for team in teams_db if team["name"] == match_req.team_a), None)
-        team_b = next((team for team in teams_db if team["name"] == match_req.team_b), None)
-        
-        if not team_a:
+        if not team_a_db:
             error_msg = f"Team '{match_req.team_a}' not found"
             logger.error(error_msg)
             raise HTTPException(status_code=404, detail=error_msg)
             
-        if not team_b:
+        if not team_b_db:
             error_msg = f"Team '{match_req.team_b}' not found"
             logger.error(error_msg)
             raise HTTPException(status_code=404, detail=error_msg)
         
+        # Get players for both teams
+        team_a_players_db = TeamRepository.get_team_players(db, team_a_db.id)
+        team_b_players_db = TeamRepository.get_team_players(db, team_b_db.id)
+        
         # Validate team structures
-        if "players" not in team_a or not team_a["players"]:
+        if not team_a_players_db:
             error_msg = f"Team '{match_req.team_a}' has no players"
             logger.error(error_msg)
             raise HTTPException(status_code=400, detail=error_msg)
             
-        if "players" not in team_b or not team_b["players"]:
+        if not team_b_players_db:
             error_msg = f"Team '{match_req.team_b}' has no players"
             logger.error(error_msg)
             raise HTTPException(status_code=400, detail=error_msg)
         
         # Transform players to match_engine expected format
-        team_a_players = transform_for_engine(team_a["players"])
-        team_b_players = transform_for_engine(team_b["players"])
+        team_a_players = transform_for_engine(team_a_players_db)
+        team_b_players = transform_for_engine(team_b_players_db)
         
-        logger.info(f"Starting match simulation between {match_req.team_a} ({len(team_a_players)} players) and {match_req.team_b} ({len(team_b_players)} players)")
+        logger.info(f"Starting match simulation between {team_a_db.name} ({len(team_a_players)} players) and {team_b_db.name} ({len(team_b_players)} players)")
         
         # Simulate match using the transformed players
         result = match_engine.simulate_match(team_a_players, team_b_players, "Haven")
         
-        # Update team stats
+        # Update team stats in database
         if result["score"]["team_a"] > result["score"]["team_b"]:
-            team_a["stats"]["wins"] += 1
-            team_b["stats"]["losses"] += 1
-            logger.info(f"Match complete: {match_req.team_a} wins {result['score']['team_a']}-{result['score']['team_b']}")
+            team_a_db.match_wins += 1
+            team_b_db.match_losses += 1
+            logger.info(f"Match complete: {team_a_db.name} wins {result['score']['team_a']}-{result['score']['team_b']}")
         else:
-            team_b["stats"]["wins"] += 1
-            team_a["stats"]["losses"] += 1
-            logger.info(f"Match complete: {match_req.team_b} wins {result['score']['team_b']}-{result['score']['team_a']}")
+            team_b_db.match_wins += 1
+            team_a_db.match_losses += 1
+            logger.info(f"Match complete: {team_b_db.name} wins {result['score']['team_b']}-{result['score']['team_a']}")
+        
+        # Commit changes to database
+        db.commit()
         
         # Save match data to database
         logger.info("Saving match data to database")
         
         # Prepare match data for database
         match_data = {
-            "team_a_name": match_req.team_a,
-            "team_b_name": match_req.team_b,
+            "team_a_name": team_a_db.name,
+            "team_b_name": team_b_db.name,
             "map": result["map"],
             "duration": result["duration"],
             "score": result["score"],
@@ -170,7 +148,6 @@ async def simulate_match(match_req: MatchRequest, request: Request, db: Session 
             MatchRepository.add_economy_logs(db, match_record.id, result["economy_logs"])
             
             # Associate economy logs with rounds in the API response
-            # This makes it easier for the frontend to visualize
             round_logs = {}
             for log in result["economy_logs"]:
                 round_logs[log["round_number"]] = log
@@ -179,20 +156,7 @@ async def simulate_match(match_req: MatchRequest, request: Request, db: Session 
             for i, round_data in enumerate(result["rounds"]):
                 if i in round_logs:
                     round_data["economy_log"] = round_logs[i]
-                
-                # Add player loadouts and credits if available
-                if "player_loadouts" in round_data:
-                    logger.debug(f"Round {i} has player loadouts")
-                else:
-                    logger.debug(f"Round {i} does not have player loadouts")
-                
-                # Ensure these fields are included in the response if they exist
-                for field in ["player_credits", "player_loadouts", "is_pistol_round"]:
-                    if field in round_data:
-                        continue
-                    else:
-                        logger.debug(f"Field {field} not present in round {i}")
-            
+        
         logger.info(f"Match data saved to database with ID {match_record.id}")
         
         # Include match record ID in the result for reference

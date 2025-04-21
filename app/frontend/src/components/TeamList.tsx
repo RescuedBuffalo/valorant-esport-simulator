@@ -19,7 +19,7 @@ import {
 } from '@mui/material';
 import { AppDispatch, RootState } from '../store';
 import { fetchTeamsThunk } from '../store/thunks/gameThunks';
-import type { Team, Player } from '../store/slices/gameSlice';
+import { Player, Team } from '../store/slices/gameSlice';
 import ErrorBoundary from './ErrorBoundary';
 import PerformanceMonitor from '../utils/performance';
 
@@ -53,33 +53,19 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => {
   
   try {
     const content = (
-      <Card variant="outlined" sx={{ 
-        mb: 2,
-        transition: 'transform 0.2s, box-shadow 0.2s',
-        '&:hover': {
-          transform: 'translateY(-4px)',
-          boxShadow: 3,
-        },
-      }}>
+      <Card variant="outlined" sx={{ mb: 2 }}>
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Avatar 
-              sx={{ 
-                width: 56, 
-                height: 56, 
-                bgcolor: 'primary.main',
-                mr: 2,
-              }}
-            >
-              {player.firstName[0]}{player.lastName[0]}
+            <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
+              {player.firstName[0]}
             </Avatar>
             <Box>
               <Typography variant="h6" sx={{ mb: 0.5 }}>
-                {player.firstName} "{player.lastName}"
+                {player.firstName} "{player.gamerTag}" {player.lastName}
               </Typography>
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <Chip 
-                  label={player.role}
+                  label={player.primaryRole}
                   size="small"
                   color="primary"
                   variant="outlined"
@@ -99,7 +85,7 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => {
           </Box>
           <Divider sx={{ my: 2 }} />
           <Grid container spacing={2}>
-            {Object.entries(player.stats).map(([stat, value]) => (
+            {Object.entries(player.coreStats).map(([stat, value]) => (
               <Grid item xs={6} key={stat}>
                 <StatBar 
                   label={stat.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')} 

@@ -26,7 +26,6 @@ interface MapInfo {
 const Maps = () => {
   const [selectedMap, setSelectedMap] = useState<string>('');
   const [showCallouts, setShowCallouts] = useState(true);
-  const [showStrategicPoints, setShowStrategicPoints] = useState(false);
   const [isBuilderMode, setIsBuilderMode] = useState(false);
   const [availableMaps, setAvailableMaps] = useState<MapInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -216,16 +215,6 @@ const Maps = () => {
                     }
                     label="Show Callouts"
                   />
-                  
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={showStrategicPoints}
-                        onChange={(e) => setShowStrategicPoints(e.target.checked)}
-                      />
-                    }
-                    label="Show Strategic Points"
-                  />
                 </Box>
               </>
             ) : (
@@ -240,7 +229,6 @@ const Maps = () => {
               <MapViewerInterface
                 mapId={selectedMap}
                 showCallouts={showCallouts}
-                showStrategicPoints={showStrategicPoints}
               />
             </Box>
           )}

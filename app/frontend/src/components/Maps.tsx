@@ -133,7 +133,6 @@ const Maps: React.FC = () => {
           <Tabs value={selectedTab} onChange={handleChangeTab} aria-label="map view tabs">
             <Tab label="Map View" />
             <Tab label="Callouts" />
-            <Tab label="Strategy" />
           </Tabs>
         </Box>
         
@@ -143,10 +142,6 @@ const Maps: React.FC = () => {
         
         {selectedTab === 1 && (
           <MapViewer mapId={selectedMap} showCallouts={true} />
-        )}
-        
-        {selectedTab === 2 && (
-          <MapViewer mapId={selectedMap} showCallouts={true} showStrategicPoints={true} />
         )}
       </Box>
     );

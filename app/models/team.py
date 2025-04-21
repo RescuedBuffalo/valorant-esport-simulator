@@ -9,6 +9,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Boolean
 from sqlalchemy.orm import relationship
 
 from app.db.base_class import Base
+from app.models.match import Match  # Add import for Match
 
 class Team(Base):
     """Professional Valorant team model."""
@@ -35,8 +36,8 @@ class Team(Base):
     
     # Performance Metrics
     reputation = Column(Float, default=50.0)
-    global_ranking = Column(Integer)
-    regional_ranking = Column(Integer)
+    global_ranking = Column(Integer, nullable=True)  # Make nullable to avoid initialization errors
+    regional_ranking = Column(Integer, nullable=True)  # Make nullable to avoid initialization errors
     tournament_wins = Column(Integer, default=0)
     match_wins = Column(Integer, default=0)
     match_losses = Column(Integer, default=0)

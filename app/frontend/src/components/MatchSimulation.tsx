@@ -30,7 +30,7 @@ import {
   TableRow,
 } from '@mui/material';
 import { AppDispatch, RootState } from '../store';
-import { clearMatch } from '../store/slices/gameSlice';
+import { resetMatchResult } from '../store/slices/gameSlice';
 import { simulateMatchThunk } from '../store/thunks/gameThunks';
 import type { MatchResult } from '../store/slices/gameSlice';
 import ErrorBoundary from './ErrorBoundary';
@@ -43,6 +43,13 @@ import WestIcon from '@mui/icons-material/West';
 import ShieldIcon from '@mui/icons-material/Shield';
 
 type Round = MatchResult['rounds'][0];
+
+interface PlayerLoadout {
+  agent?: string;
+  weapon: string;
+  armor: boolean;
+  total_spend: number;
+}
 
 const RoundSummary: React.FC<{ 
   round: Round; 
@@ -279,13 +286,13 @@ const RoundSummary: React.FC<{
                       {round.player_loadouts && Object.entries(round.player_loadouts.team_a).map(([playerId, loadout]) => (
                         <TableRow key={playerId}>
                           <TableCell sx={{ fontWeight: 'medium' }}>{getPlayerName(playerId)}</TableCell>
-                          <TableCell>{loadout.agent || "Unknown"}</TableCell>
-                          <TableCell sx={{ color: loadout.weapon === 'Classic' ? 'text.secondary' : 'inherit' }}>
-                            {loadout.weapon}
+                          <TableCell>{(loadout as PlayerLoadout).agent || "Unknown"}</TableCell>
+                          <TableCell sx={{ color: (loadout as PlayerLoadout).weapon === 'Classic' ? 'text.secondary' : 'inherit' }}>
+                            {(loadout as PlayerLoadout).weapon}
                           </TableCell>
-                          <TableCell>{loadout.armor ? "Yes" : "No"}</TableCell>
-                          <TableCell align="right" sx={{ color: loadout.total_spend > 0 ? 'error.main' : 'inherit', fontWeight: loadout.total_spend > 0 ? 'bold' : 'normal' }}>
-                            {loadout.total_spend > 0 ? `-$${loadout.total_spend}` : '$0'}
+                          <TableCell>{(loadout as PlayerLoadout).armor ? "Yes" : "No"}</TableCell>
+                          <TableCell align="right" sx={{ color: (loadout as PlayerLoadout).total_spend > 0 ? 'error.main' : 'inherit', fontWeight: (loadout as PlayerLoadout).total_spend > 0 ? 'bold' : 'normal' }}>
+                            {(loadout as PlayerLoadout).total_spend > 0 ? `-$${(loadout as PlayerLoadout).total_spend}` : '$0'}
                           </TableCell>
                           <TableCell align="right" sx={{ fontWeight: 'bold' }}>
                             ${round.player_credits?.[playerId] || '?'}
@@ -313,13 +320,13 @@ const RoundSummary: React.FC<{
                       {round.player_loadouts && Object.entries(round.player_loadouts.team_b).map(([playerId, loadout]) => (
                         <TableRow key={playerId}>
                           <TableCell sx={{ fontWeight: 'medium' }}>{getPlayerName(playerId)}</TableCell>
-                          <TableCell>{loadout.agent || "Unknown"}</TableCell>
-                          <TableCell sx={{ color: loadout.weapon === 'Classic' ? 'text.secondary' : 'inherit' }}>
-                            {loadout.weapon}
+                          <TableCell>{(loadout as PlayerLoadout).agent || "Unknown"}</TableCell>
+                          <TableCell sx={{ color: (loadout as PlayerLoadout).weapon === 'Classic' ? 'text.secondary' : 'inherit' }}>
+                            {(loadout as PlayerLoadout).weapon}
                           </TableCell>
-                          <TableCell>{loadout.armor ? "Yes" : "No"}</TableCell>
-                          <TableCell align="right" sx={{ color: loadout.total_spend > 0 ? 'error.main' : 'inherit', fontWeight: loadout.total_spend > 0 ? 'bold' : 'normal' }}>
-                            {loadout.total_spend > 0 ? `-$${loadout.total_spend}` : '$0'}
+                          <TableCell>{(loadout as PlayerLoadout).armor ? "Yes" : "No"}</TableCell>
+                          <TableCell align="right" sx={{ color: (loadout as PlayerLoadout).total_spend > 0 ? 'error.main' : 'inherit', fontWeight: (loadout as PlayerLoadout).total_spend > 0 ? 'bold' : 'normal' }}>
+                            {(loadout as PlayerLoadout).total_spend > 0 ? `-$${(loadout as PlayerLoadout).total_spend}` : '$0'}
                           </TableCell>
                           <TableCell align="right" sx={{ fontWeight: 'bold' }}>
                             ${round.player_credits?.[playerId] || '?'}
@@ -559,7 +566,7 @@ const MatchSimulation: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const teams = useSelector((state: RootState) => state.game.teams);
-  const currentMatch = useSelector((state: RootState) => state.game.currentMatch);
+  const matchResult = useSelector((state: RootState) => state.game.matchResult);
   const loading = useSelector((state: RootState) => state.game.loading);
 
   const [teamA, setTeamA] = useState('');
@@ -604,7 +611,7 @@ const MatchSimulation: React.FC = () => {
 
   const handleNewMatch = () => {
     try {
-      dispatch(clearMatch());
+      dispatch(resetMatchResult());
       setTeamA('');
       setTeamB('');
       setError(null); // Clear errors on new match
@@ -642,7 +649,7 @@ const MatchSimulation: React.FC = () => {
           <Typography variant="h4" gutterBottom align="center">
             Simulate Match
           </Typography>
-          {!currentMatch ? (
+          {!matchResult ? (
             <Grow in timeout={500}>
               <Paper elevation={3} sx={{ p: 3, maxWidth: 500, mx: 'auto' }}>
                 <Grid container spacing={3}>
@@ -712,7 +719,7 @@ const MatchSimulation: React.FC = () => {
             <Box>
               <ErrorBoundary>
                 <MatchResultDisplay 
-                  result={currentMatch} 
+                  result={matchResult} 
                   teamA={teamA} 
                   teamB={teamB} 
                   teamAPlayers={teamAPlayers}

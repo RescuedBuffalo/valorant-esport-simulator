@@ -1,55 +1,52 @@
 import gameReducer, {
-  updateMoney,
-  updateReputation,
-  advanceTime,
-  upgradeFacility,
+  resetMatchResult,
+  setCurrentTeam,
 } from '../gameSlice';
 
 describe('gameSlice', () => {
-  const mockDate = '2025-01-01T00:00:00.000Z';
-  
-  beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(mockDate));
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
   const initialState = {
-    money: 100000,
-    reputation: 50,
-    currentDate: mockDate,
-    facilityLevel: 1,
-    regions: [],
     teams: [],
-    currentMatch: null,
+    regions: [],
+    currentTeam: null,
+    matchResult: null,
     loading: false,
+    error: null,
   };
 
   it('should handle initial state', () => {
     expect(gameReducer(undefined, { type: 'unknown' })).toEqual(initialState);
   });
 
-  it('should handle updateMoney', () => {
-    const actual = gameReducer(initialState, updateMoney(200000));
-    expect(actual.money).toEqual(200000);
+  it('should handle resetMatchResult', () => {
+    const stateWithMatchResult = {
+      ...initialState,
+      matchResult: {
+        score: { team_a: 13, team_b: 8 },
+        rounds: [],
+        duration: 45,
+        map: 'Haven',
+        mvp: 'player1',
+      }
+    };
+    const actual = gameReducer(stateWithMatchResult, resetMatchResult());
+    expect(actual.matchResult).toBeNull();
   });
 
-  it('should handle updateReputation', () => {
-    const actual = gameReducer(initialState, updateReputation(75));
-    expect(actual.reputation).toEqual(75);
-  });
-
-  it('should handle advanceTime', () => {
-    const newDate = new Date().toISOString();
-    const actual = gameReducer(initialState, advanceTime(newDate));
-    expect(actual.currentDate).toEqual(newDate);
-  });
-
-  it('should handle upgradeFacility', () => {
-    const actual = gameReducer(initialState, upgradeFacility());
-    expect(actual.facilityLevel).toEqual(2);
+  it('should handle setCurrentTeam', () => {
+    const mockTeam = {
+      id: '123',
+      name: 'Test Team',
+      region: 'NA',
+      reputation: 75,
+      players: [],
+      stats: {
+        wins: 0,
+        losses: 0,
+        tournaments_won: 0,
+        prize_money: 0
+      }
+    };
+    const actual = gameReducer(initialState, setCurrentTeam(mockTeam));
+    expect(actual.currentTeam).toEqual(mockTeam);
   });
 }); 

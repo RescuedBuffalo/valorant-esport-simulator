@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Tabs,
@@ -8,6 +8,8 @@ import {
   Button,
   Tooltip,
   IconButton,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import BuildIcon from '@mui/icons-material/Build';
 import PreviewIcon from '@mui/icons-material/Preview';
@@ -18,16 +20,16 @@ import MapBuilder from './MapBuilder';
 interface MapViewerInterfaceProps {
   mapId: string;
   showCallouts?: boolean;
-  showStrategicPoints?: boolean;
 }
 
 const MapViewerInterface: React.FC<MapViewerInterfaceProps> = ({
   mapId,
   showCallouts = true,
-  showStrategicPoints = false,
 }) => {
   const [mode, setMode] = useState<'view' | 'build'>('view');
   const [hoveredArea, setHoveredArea] = useState<string | null>(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   const handleModeChange = (_: React.SyntheticEvent, newMode: 'view' | 'build') => {
     setMode(newMode);
@@ -35,6 +37,28 @@ const MapViewerInterface: React.FC<MapViewerInterfaceProps> = ({
 
   const handleAreaHover = (areaName: string | null) => {
     setHoveredArea(areaName);
+  };
+
+  const handleMapSave = useCallback((mapData: any) => {
+    // Save the map to localStorage
+    try {
+      const mapId = mapData.name.toLowerCase().replace(/\s+/g, '_');
+      localStorage.setItem(`map_${mapId}`, JSON.stringify(mapData));
+      
+      setSnackbarMessage(`Map "${mapData.name}" saved successfully!`);
+      setSnackbarOpen(true);
+      
+      // Switch back to view mode after saving
+      setMode('view');
+    } catch (error) {
+      console.error('Error saving map:', error);
+      setSnackbarMessage('Error saving map. Please try again.');
+      setSnackbarOpen(true);
+    }
+  }, []);
+
+  const handleSnackbarClose = () => {
+    setSnackbarOpen(false);
   };
 
   return (
@@ -65,8 +89,7 @@ const MapViewerInterface: React.FC<MapViewerInterfaceProps> = ({
         <Box>
           <MapViewer 
             mapId={mapId} 
-            showCallouts={showCallouts} 
-            showStrategicPoints={showStrategicPoints}
+            showCallouts={showCallouts}
             onAreaHover={handleAreaHover}
           />
           
@@ -80,7 +103,7 @@ const MapViewerInterface: React.FC<MapViewerInterfaceProps> = ({
           )}
         </Box>
       ) : (
-        <MapBuilder />
+        <MapBuilder onSaveComplete={handleMapSave} />
       )}
 
       <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
@@ -95,6 +118,21 @@ const MapViewerInterface: React.FC<MapViewerInterfaceProps> = ({
           </IconButton>
         </Tooltip>
       </Box>
+
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleSnackbarClose} 
+          severity="success" 
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

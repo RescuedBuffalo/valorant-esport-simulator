@@ -1,46 +1,30 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import List, Optional, Dict, Any
 import uuid
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
 from app.simulation.player_generator import PlayerGenerator
+from app.repositories.team_repository import TeamRepository
 
 router = APIRouter()
 player_generator = PlayerGenerator()
-
-# Simple in-memory storage for teams
-teams_db: List[Dict[str, Any]] = []
 
 class TeamCreate(BaseModel):
     name: str
     region: Optional[str] = None
 
 def transform_player(player: Dict[str, Any]) -> Dict[str, Any]:
-    """Transform player data from backend format to frontend expected format."""
-    return {
-        "id": player.get("id", str(uuid.uuid4())),
-        "firstName": player.get("firstName", ""),
-        "lastName": player.get("lastName", ""),
-        "age": player.get("age", 0),
-        "nationality": player.get("nationality", ""),
-        "role": player.get("primaryRole", ""),
-        "stats": {
-            "aim": player.get("coreStats", {}).get("aim", 0),
-            "game_sense": player.get("coreStats", {}).get("gameSense", 0),
-            "utility": player.get("coreStats", {}).get("utilityUsage", 0),
-            "leadership": player.get("coreStats", {}).get("communication", 0),
-            "clutch": player.get("coreStats", {}).get("clutch", 0),
-            "movement": player.get("coreStats", {}).get("movement", 0),
-        },
-        "salary": player.get("salary", 0),
-        "form": player.get("careerStats", {}).get("winRate", 0.5) * 100,
-        "fatigue": 0,  # Default value
-        "agent_proficiencies": player.get("agentProficiencies", {})
-    }
+    """Transform player dictionary to match frontend expectations."""
+    # Format is already good from the generator, return as is
+    return player
 
 @router.post("/")
-async def create_team(team_data: TeamCreate):
-    """Create a new team."""
+async def create_team(team_data: TeamCreate, db: Session = Depends(get_db)):
+    """Create a new team and save to database."""
     try:
+        # Generate roster using existing player generator
         roster = player_generator.generate_team_roster(region=team_data.region)
         
         # Transform players to match frontend format
@@ -57,29 +41,51 @@ async def create_team(team_data: TeamCreate):
         else:
             reputation = 50
         
-        # Create the team object
-        team = {
-            "id": str(uuid.uuid4()),
+        # Create team in database
+        team_db_data = {
             "name": team_data.name,
             "region": team_data.region or "Unknown",
             "reputation": round(reputation, 1),
-            "players": transformed_players,
-            "stats": {
-                "wins": 0,
-                "losses": 0,
-                "tournaments_won": 0,
-                "prize_money": 0
-            }
         }
         
-        # Add to in-memory database
-        teams_db.append(team)
+        team = TeamRepository.create_team(db, team_db_data)
         
-        return team
+        # Add players to the team in database
+        for player_data in roster:
+            TeamRepository.add_player_to_team(db, team.id, player_data)
+        
+        # Get all players from the database
+        players = TeamRepository.get_team_players(db, team.id)
+        
+        # Format response
+        response = TeamRepository.format_team_response(team, players)
+        
+        return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/")
-async def list_teams():
-    """List all teams."""
-    return {"teams": teams_db} 
+async def list_teams(db: Session = Depends(get_db)):
+    """List all teams from database."""
+    teams_db = TeamRepository.get_teams(db)
+    teams_response = []
+    
+    for team in teams_db:
+        players = TeamRepository.get_team_players(db, team.id)
+        teams_response.append(
+            TeamRepository.format_team_response(team, players)
+        )
+    
+    return {"teams": teams_response}
+
+@router.get("/{team_id}")
+async def get_team(team_id: str, db: Session = Depends(get_db)):
+    """Get team details from database."""
+    team = TeamRepository.get_team_by_id(db, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    players = TeamRepository.get_team_players(db, team.id)
+    response = TeamRepository.format_team_response(team, players)
+    
+    return response 
