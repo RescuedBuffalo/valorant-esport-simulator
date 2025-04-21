@@ -25,6 +25,7 @@ import SportsEsportsIcon from '@mui/icons-material/SportsEsports';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import { RoundSimulationRequest, RoundSimulationResponse, RoundEvent } from '../types/api.types';
 import { recordUserInteraction } from '../utils/metrics';
+import { config } from '../config'; // Import config to get API_URL
 
 interface RoundPlayByPlayProps {
   teamA: string;
@@ -167,8 +168,8 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
           };
         }
         
-        // Call API to simulate round using fetch directly
-        const response = await fetch('/api/v1/matches/simulate-round', {
+        // Call API to simulate round using fetch directly with the proper API URL
+        const response = await fetch(`${config.API_URL}/api/v1/matches/simulate-round`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
