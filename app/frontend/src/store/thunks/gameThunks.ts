@@ -99,6 +99,108 @@ export const updateTeamThunk = createAsyncThunk(
   }
 );
 
+/**
+ * Helper function to sanitize player data before sending to the API
+ * This ensures all numeric fields are actually numbers
+ */
+export function sanitizePlayerData(playerData: Partial<Player>): Partial<Player> {
+  console.log('Original player data to sanitize:', JSON.stringify(playerData, null, 2));
+  const sanitized = { ...playerData };
+  
+  // Process numeric fields
+  if (sanitized.age !== undefined) {
+    if (typeof sanitized.age === 'string') {
+      sanitized.age = parseInt(sanitized.age, 10);
+    } else if (typeof sanitized.age !== 'number') {
+      sanitized.age = 18; // Default age
+    }
+  }
+  
+  if (sanitized.salary !== undefined) {
+    if (typeof sanitized.salary === 'string') {
+      sanitized.salary = parseInt(sanitized.salary, 10);
+    } else if (typeof sanitized.salary !== 'number') {
+      sanitized.salary = 50000; // Default salary
+    }
+  }
+  
+  // Handle core stats
+  if (sanitized.coreStats) {
+    const coreStats = { ...sanitized.coreStats } as Record<string, number>;
+    let statsChanged = false;
+    
+    // Ensure all stats are numbers
+    Object.keys(coreStats).forEach(key => {
+      const value = coreStats[key];
+      if (typeof value === 'string') {
+        coreStats[key] = parseFloat(value);
+        statsChanged = true;
+      } else if (typeof value !== 'number') {
+        coreStats[key] = 50; // Default value if invalid
+        statsChanged = true;
+      } else if (isNaN(value)) {
+        coreStats[key] = 50; // Handle NaN values
+        statsChanged = true;
+      }
+    });
+    
+    // Make sure we have all the required core stats
+    const requiredStats = ['aim', 'gameSense', 'movement', 'utilityUsage', 'communication', 'clutch'];
+    requiredStats.forEach(stat => {
+      if (coreStats[stat] === undefined) {
+        coreStats[stat] = 50;
+        statsChanged = true;
+      }
+    });
+    
+    if (statsChanged) {
+      console.log('Core stats sanitized:', coreStats);
+      sanitized.coreStats = coreStats as any;
+    }
+  }
+  
+  // Handle proficiencies
+  if (sanitized.roleProficiencies) {
+    const roleProficiencies = { ...sanitized.roleProficiencies } as Record<string, number>;
+    
+    Object.keys(roleProficiencies).forEach(key => {
+      const value = roleProficiencies[key];
+      if (typeof value === 'string') {
+        roleProficiencies[key] = parseFloat(value);
+      } else if (typeof value !== 'number' || isNaN(value)) {
+        roleProficiencies[key] = 50; // Default value if invalid
+      }
+    });
+    
+    sanitized.roleProficiencies = roleProficiencies as any;
+  }
+  
+  if (sanitized.agentProficiencies) {
+    const agentProficiencies = { ...sanitized.agentProficiencies } as Record<string, number>;
+    
+    Object.keys(agentProficiencies).forEach(key => {
+      const value = agentProficiencies[key];
+      if (typeof value === 'string') {
+        agentProficiencies[key] = parseFloat(value);
+      } else if (typeof value !== 'number' || isNaN(value)) {
+        agentProficiencies[key] = 50; // Default value if invalid
+      }
+    });
+    
+    sanitized.agentProficiencies = agentProficiencies as any;
+  }
+  
+  // Clean up any null values that might cause issues
+  Object.keys(sanitized).forEach(key => {
+    if (sanitized[key as keyof Partial<Player>] === null) {
+      delete sanitized[key as keyof Partial<Player>];
+    }
+  });
+  
+  console.log('Sanitized player data:', JSON.stringify(sanitized, null, 2));
+  return sanitized;
+}
+
 export const updatePlayerThunk = createAsyncThunk(
   'game/updatePlayer',
   async ({ 
@@ -111,51 +213,69 @@ export const updatePlayerThunk = createAsyncThunk(
     playerData: Partial<Player> 
   }, { rejectWithValue }) => {
     try {
-      // Clean up the playerData object to ensure proper formatting
-      // Convert numeric string values to actual numbers
-      const cleanedData = { ...playerData };
+      // Thoroughly sanitize the data
+      const cleanedData = sanitizePlayerData(playerData);
       
-      // Handle potential string-to-number conversions
-      if (typeof cleanedData.age === 'string') {
-        cleanedData.age = parseInt(cleanedData.age as string, 10);
-      }
+      // When sending just a core stat update, format it according to the backend expectations
+      // This is to handle the common case of updating just a single stat
+      let requestPayload = cleanedData;
       
-      if (typeof cleanedData.salary === 'string') {
-        cleanedData.salary = parseInt(cleanedData.salary as string, 10);
-      }
-      
-      // Handle core stats numeric conversions
-      if (cleanedData.coreStats) {
-        const coreStats = cleanedData.coreStats as Record<string, any>;
-        Object.keys(coreStats).forEach(key => {
-          const value = coreStats[key];
-          if (typeof value === 'string') {
-            coreStats[key] = parseFloat(value);
+      // If the only property in cleanedData is coreStats, ensure it's properly structured
+      if (Object.keys(cleanedData).length === 1 && cleanedData.coreStats) {
+        // Make sure coreStats is properly formatted as a dictionary of numbers
+        const formattedCoreStats: Record<string, number> = {};
+        
+        Object.entries(cleanedData.coreStats).forEach(([key, value]) => {
+          if (typeof value === 'number') {
+            formattedCoreStats[key] = value;
+          } else if (typeof value === 'string') {
+            formattedCoreStats[key] = parseFloat(value);
           }
         });
+        
+        // Create a valid payload that matches the PlayerUpdate model
+        requestPayload = {
+          coreStats: formattedCoreStats as any // Use type assertion to avoid TypeScript errors
+        };
       }
+      
+      console.log(`Sending update request to ${config.API_URL}/api/v1/teams/${teamId}/players/${playerId}`);
+      console.log('Request payload:', JSON.stringify(requestPayload, null, 2));
       
       const response = await fetch(`${config.API_URL}/api/v1/teams/${teamId}/players/${playerId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(cleanedData),
+        body: JSON.stringify(requestPayload),
       });
 
       if (!response.ok) {
+        console.error(`Error response from API: ${response.status} ${response.statusText}`);
+        
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
           const errorData = await response.json();
+          console.error('JSON error response:', errorData);
+          
+          if (response.status === 422) {
+            console.error('Validation error details:', errorData.detail);
+            return rejectWithValue(`Validation error: ${JSON.stringify(errorData.detail)}`);
+          }
+          
           return rejectWithValue(errorData.detail || `Failed to update player: ${response.status}`);
         } else {
           const errorText = await response.text();
+          console.error('Plain text error response:', errorText);
           return rejectWithValue(`Failed to update player: ${response.status} - ${errorText}`);
         }
       }
 
-      return await response.json();
+      const responseData = await response.json();
+      console.log('Successful update response:', responseData);
+      return responseData;
     } catch (error) {
+      console.error('Error in updatePlayerThunk:', error);
       return rejectWithValue('Failed to update player: ' + error);
     }
   }

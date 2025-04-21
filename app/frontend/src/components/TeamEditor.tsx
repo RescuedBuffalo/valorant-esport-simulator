@@ -53,6 +53,7 @@ import {
   removePlayerFromTeamThunk 
 } from '../store/thunks/gameThunks';
 import { Player, Team } from '../store/slices/gameSlice';
+import { sanitizePlayerData } from '../store/thunks/gameThunks';
 
 // Define the TabPanel component for different sections
 interface TabPanelProps {
@@ -118,23 +119,39 @@ const PlayerEditDialog: React.FC<PlayerDialogProps> = ({
     agentProficiencies: {},
   });
 
+  // Add effect to log form data changes
+  useEffect(() => {
+    console.log('Form data updated:', {
+      formData,
+      coreStatsTypes: formData.coreStats ? 
+        Object.entries(formData.coreStats).map(([key, val]) => `${key}: ${typeof val} (${val})`) : 
+        'undefined'
+    });
+  }, [formData]);
+
   useEffect(() => {
     if (player) {
+      console.log('Setting form data from player:', player);
       setFormData(player);
     }
   }, [player]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    console.log(`Field change - ${name}:`, { value, type: typeof value });
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleRoleChange = (event: SelectChangeEvent) => {
+    console.log('Role change:', event.target.value);
     setFormData((prev) => ({ ...prev, primaryRole: event.target.value }));
   };
 
   const handleCoreStatChange = (stat: string, newValue: number | number[]) => {
-    const value = Array.isArray(newValue) ? newValue[0] : newValue;
+    // Ensure we have a numeric value
+    const value = Array.isArray(newValue) ? Number(newValue[0]) : Number(newValue);
+    console.log(`Core stat change - ${stat}:`, { value, type: typeof value });
+    
     setFormData((prev) => {
       // Ensure coreStats exists
       const currentCoreStats = prev.coreStats || {
@@ -146,18 +163,33 @@ const PlayerEditDialog: React.FC<PlayerDialogProps> = ({
         clutch: 50,
       };
       
-      return {
+      // Create a new stats object to ensure proper reference change
+      const updatedCoreStats = { ...currentCoreStats } as Record<string, number>;
+      // Explicitly set as a number
+      updatedCoreStats[stat] = value;
+      
+      const updatedData = {
         ...prev,
-        coreStats: {
-          ...currentCoreStats,
-          [stat]: value,
-        },
+        coreStats: updatedCoreStats as typeof currentCoreStats
       };
+      
+      console.log('Updated form data (stats):', {
+        statName: stat,
+        newValue: value,
+        valueType: typeof value,
+        allStats: updatedData.coreStats
+      });
+      
+      return updatedData;
     });
   };
 
   const handleSave = () => {
-    onSave(formData);
+    console.log('Saving player with form data:', formData);
+    // Apply sanitization to ensure proper data types before saving
+    const sanitizedData = sanitizePlayerData(formData);
+    console.log('Sanitized form data to save:', sanitizedData);
+    onSave(sanitizedData);
     onClose();
   };
 
@@ -382,25 +414,92 @@ const TeamEditor: React.FC = () => {
     }
   };
 
-  const handleSavePlayer = async (playerData: Partial<Player>) => {
-    if (teamId) {
-      try {
-        if (isNewPlayer) {
-          // Add new player
-          await dispatch(addPlayerToTeamThunk({ teamId, playerData })).unwrap();
-          setSnackbar({ open: true, message: 'Player added successfully', severity: 'success' });
-        } else if (selectedPlayer) {
-          // Update existing player
-          await dispatch(updatePlayerThunk({
-            teamId,
-            playerId: selectedPlayer.id,
-            playerData,
-          })).unwrap();
-          setSnackbar({ open: true, message: 'Player updated successfully', severity: 'success' });
+  const handleSavePlayer = (playerFormData: Partial<Player>) => {
+    console.log('Form data received in handleSavePlayer:', playerFormData);
+    
+    if (selectedPlayer && !isNewPlayer) {
+      console.log('Updating existing player:', selectedPlayer.id);
+      
+      // Create a minimal update object with only the fields that are changing
+      // Focus especially on coreStats as this seems to be causing issues
+      const updateData: Partial<Player> = {};
+      
+      // Only add fields that have values in the form data
+      if (playerFormData.firstName !== undefined) updateData.firstName = playerFormData.firstName;
+      if (playerFormData.lastName !== undefined) updateData.lastName = playerFormData.lastName;
+      if (playerFormData.gamerTag !== undefined) updateData.gamerTag = playerFormData.gamerTag;
+      if (playerFormData.age !== undefined) updateData.age = playerFormData.age;
+      if (playerFormData.nationality !== undefined) updateData.nationality = playerFormData.nationality;
+      if (playerFormData.region !== undefined) updateData.region = playerFormData.region;
+      if (playerFormData.primaryRole !== undefined) updateData.primaryRole = playerFormData.primaryRole;
+      if (playerFormData.salary !== undefined) updateData.salary = playerFormData.salary;
+      
+      // If coreStats exists, only include it if values are present
+      if (playerFormData.coreStats) {
+        // For important stats, only include the specific fields that are being updated
+        // Define with the right type to avoid TypeScript errors
+        updateData.coreStats = {} as typeof playerFormData.coreStats;
+        
+        const coreStats = playerFormData.coreStats;
+        if (coreStats.aim !== undefined) updateData.coreStats.aim = coreStats.aim;
+        if (coreStats.gameSense !== undefined) updateData.coreStats.gameSense = coreStats.gameSense;
+        if (coreStats.movement !== undefined) updateData.coreStats.movement = coreStats.movement;
+        if (coreStats.utilityUsage !== undefined) updateData.coreStats.utilityUsage = coreStats.utilityUsage;
+        if (coreStats.communication !== undefined) updateData.coreStats.communication = coreStats.communication;
+        if (coreStats.clutch !== undefined) updateData.coreStats.clutch = coreStats.clutch;
+        
+        // If no core stats were added, remove the empty object
+        if (updateData.coreStats && Object.keys(updateData.coreStats).length === 0) {
+          delete updateData.coreStats;
         }
-      } catch (error) {
-        setSnackbar({ open: true, message: `Failed to save player: ${error}`, severity: 'error' });
       }
+      
+      // Log the data being sent to the API
+      console.log('Minimal update data being sent to API:', JSON.stringify(updateData, null, 2));
+      
+      dispatch(updatePlayerThunk({
+        teamId: teamId || '',
+        playerId: selectedPlayer.id,
+        playerData: updateData, // Use minimal update data
+      }))
+        .unwrap()
+        .then(() => {
+          console.log('Player updated successfully');
+          setSnackbar({ open: true, message: 'Player updated successfully', severity: 'success' });
+          setIsPlayerDialogOpen(false);
+          // Refresh team data
+          if (teamId) {
+            dispatch(fetchTeamByIdThunk(teamId));
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to update player:', error);
+          setSnackbar({ open: true, message: `Failed to update player: ${error}`, severity: 'error' });
+        });
+    } else {
+      console.log('Adding new player');
+      
+      // Log the data being sent to the API
+      console.log('Data being sent to add player API:', JSON.stringify(playerFormData, null, 2));
+      
+      dispatch(addPlayerToTeamThunk({
+        teamId: teamId || '',
+        playerData: playerFormData, // Use the form data
+      }))
+        .unwrap()
+        .then(() => {
+          console.log('Player added successfully');
+          setSnackbar({ open: true, message: 'Player added successfully', severity: 'success' });
+          setIsPlayerDialogOpen(false);
+          // Refresh team data
+          if (teamId) {
+            dispatch(fetchTeamByIdThunk(teamId));
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to add player:', error);
+          setSnackbar({ open: true, message: `Failed to add player: ${error}`, severity: 'error' });
+        });
     }
   };
 
