@@ -195,3 +195,16 @@ CREATE TABLE tournaments (
 To start: "./start-monitoring.sh"
 To start: "./start-prometheus-local.sh"
 To stop: "docker-compose -f docker-compose.monitoring.yml down"
+
+## Free-Tier Temporary Hosting
+1. Render.com:
+Free PostgreSQL database (expires after 90 days)
+Free web services
+Can deploy directly from GitHub
+2. Railway.app:
+$5 credit free (no credit card needed)
+Easy PostgreSQL setup
+GitHub integration for deployment
+3. Fly.io:
+Free tier includes small VMs and PostgreSQL
+Deploy with their CLI tool
