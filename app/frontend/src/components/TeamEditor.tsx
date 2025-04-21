@@ -283,7 +283,27 @@ const PlayerEditDialog: React.FC<PlayerDialogProps> = ({
               name="salary"
               type="number"
               value={formData.salary || 50000}
-              onChange={handleChange}
+              onChange={(e) => {
+                // Ensure salary is always an integer
+                const rawValue = e.target.value;
+                const intValue = parseInt(rawValue, 10);
+                if (!isNaN(intValue)) {
+                  console.log(`Converting salary from ${rawValue} to ${intValue}`);
+                  handleChange({
+                    ...e,
+                    target: {
+                      ...e.target,
+                      name: 'salary',
+                      value: intValue.toString()
+                    }
+                  });
+                }
+              }}
+              inputProps={{
+                min: 0,
+                step: 1,
+                pattern: '[0-9]*'
+              }}
               InputProps={{
                 startAdornment: '$',
               }}

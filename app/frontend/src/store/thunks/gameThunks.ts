@@ -113,6 +113,9 @@ export function sanitizePlayerData(playerData: Partial<Player>): Partial<Player>
       sanitized.age = parseInt(sanitized.age, 10);
     } else if (typeof sanitized.age !== 'number') {
       sanitized.age = 18; // Default age
+    } else {
+      // Ensure age is an integer
+      sanitized.age = Math.round(sanitized.age);
     }
   }
   
@@ -121,7 +124,11 @@ export function sanitizePlayerData(playerData: Partial<Player>): Partial<Player>
       sanitized.salary = parseInt(sanitized.salary, 10);
     } else if (typeof sanitized.salary !== 'number') {
       sanitized.salary = 50000; // Default salary
+    } else {
+      // Ensure salary is an integer, not a float
+      sanitized.salary = Math.round(sanitized.salary);
     }
+    console.log('Sanitized salary:', sanitized.salary, typeof sanitized.salary);
   }
   
   // Handle core stats
@@ -239,6 +246,16 @@ export const updatePlayerThunk = createAsyncThunk(
         };
       }
       
+      // Handle salary specifically - ensure it's an integer
+      if (requestPayload.salary !== undefined) {
+        if (typeof requestPayload.salary === 'number') {
+          requestPayload.salary = Math.round(requestPayload.salary);
+        } else if (typeof requestPayload.salary === 'string') {
+          requestPayload.salary = parseInt(requestPayload.salary, 10);
+        }
+        console.log('Final salary value before API call:', requestPayload.salary, typeof requestPayload.salary);
+      }
+      
       console.log(`Sending update request to ${config.API_URL}/api/v1/teams/${teamId}/players/${playerId}`);
       console.log('Request payload:', JSON.stringify(requestPayload, null, 2));
       
@@ -291,21 +308,56 @@ export const addPlayerToTeamThunk = createAsyncThunk(
     playerData: Partial<Player> 
   }, { rejectWithValue }) => {
     try {
+      // Sanitize the data first to ensure proper types
+      const cleanedData = sanitizePlayerData(playerData);
+      
+      // Ensure salary is an integer if it exists
+      if (cleanedData.salary !== undefined) {
+        if (typeof cleanedData.salary === 'number') {
+          cleanedData.salary = Math.round(cleanedData.salary);
+        } else if (typeof cleanedData.salary === 'string') {
+          cleanedData.salary = parseInt(cleanedData.salary, 10);
+        }
+        console.log('Final salary value for new player:', cleanedData.salary, typeof cleanedData.salary);
+      }
+      
+      console.log(`Sending add player request to ${config.API_URL}/api/v1/teams/${teamId}/players`);
+      console.log('Request payload:', JSON.stringify(cleanedData, null, 2));
+      
       const response = await fetch(`${config.API_URL}/api/v1/teams/${teamId}/players`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(playerData),
+        body: JSON.stringify(cleanedData),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        return rejectWithValue(errorData.detail || 'Failed to add player to team');
+        console.error(`Error response from API: ${response.status} ${response.statusText}`);
+        
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          console.error('JSON error response:', errorData);
+          
+          if (response.status === 422) {
+            console.error('Validation error details:', errorData.detail);
+            return rejectWithValue(`Validation error: ${JSON.stringify(errorData.detail)}`);
+          }
+          
+          return rejectWithValue(errorData.detail || 'Failed to add player to team');
+        } else {
+          const errorText = await response.text();
+          console.error('Plain text error response:', errorText);
+          return rejectWithValue(`Failed to add player to team: ${response.status} - ${errorText}`);
+        }
       }
 
-      return await response.json();
+      const responseData = await response.json();
+      console.log('Successful add player response:', responseData);
+      return responseData;
     } catch (error) {
+      console.error('Error in addPlayerToTeamThunk:', error);
       return rejectWithValue('Failed to add player to team: ' + error);
     }
   }
