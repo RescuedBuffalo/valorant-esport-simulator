@@ -73,7 +73,7 @@ def test_match_engine_buy_phase():
     } for i in range(5)]
     
     # Test full buy round
-    weapons, armor = match_engine._buy_phase(test_team, 5000, 0, "team_a")
+    total_spent, weapons, armor = match_engine._buy_phase(test_team, 5000, 0, "team_a")
     
     assert len(weapons) == 5  # Each player should have a weapon
     assert len(armor) == 5  # Each player should have armor status
@@ -84,7 +84,7 @@ def test_match_engine_buy_phase():
     
     # Test eco round
     match_engine.economy["team_a"] = 2000  # Reset economy for eco test
-    weapons, armor = match_engine._buy_phase(test_team, 2000, 0, "team_a")
+    total_spent, weapons, armor = match_engine._buy_phase(test_team, 2000, 0, "team_a")
     
     # Most players should have Classic or Sheriff
     eco_weapons = [w for w in weapons.values() if w in ['Classic', 'Sheriff']]

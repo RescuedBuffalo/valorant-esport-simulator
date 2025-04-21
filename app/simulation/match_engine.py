@@ -134,7 +134,7 @@ class MatchEngine:
             return 'force_buy'
         return 'eco'
     
-    def _buy_phase(self, team: List[Dict], team_economy: int, team_loss_streak: int, team_id: str) -> Tuple[Dict[str, str], Dict[str, bool]]:
+    def _buy_phase(self, team: List[Dict], team_economy: int, team_loss_streak: int, team_id: str) -> Tuple[int, Dict[str, str], Dict[str, bool]]:
         """
         Simulate the buy phase for a team.
         
@@ -145,7 +145,7 @@ class MatchEngine:
             team_id: 'team_a' or 'team_b'
             
         Returns:
-            Tuple of (weapons dict, armor dict)
+            Tuple of (total spent, weapons dict, armor dict)
         """
         weapons = {}
         armor = {}
@@ -189,7 +189,7 @@ class MatchEngine:
                 armor[player_id] = True
                 self.player_credits[player_id] -= 1000
             
-            return weapons, armor
+            return total_spent, weapons, armor
         
         for idx, player in enumerate(team):
             player_id = player['id']
@@ -282,7 +282,7 @@ class MatchEngine:
                         log['notes'].append(f"{team_id} spent {total_spent} credits in buy phase")
                     break
         
-        return weapons, armor
+        return total_spent, weapons, armor
     
     def _simulate_duel(
         self,
@@ -368,15 +368,17 @@ class MatchEngine:
         # Buy weapons for team_a based on round type
         team_a_spend, round_weapons['team_a'], round_armor['team_a'] = self._buy_phase(
             self.current_match.team_a, 
-            'team_a', 
-            team_a_round_type
+            self.economy['team_a'],
+            self.loss_streaks['team_a'],
+            'team_a'
         )
         
         # Buy weapons for team_b based on round type
         team_b_spend, round_weapons['team_b'], round_armor['team_b'] = self._buy_phase(
             self.current_match.team_b, 
-            'team_b', 
-            team_b_round_type
+            self.economy['team_b'],
+            self.loss_streaks['team_b'],
+            'team_b'
         )
         
         player_loadouts = {
