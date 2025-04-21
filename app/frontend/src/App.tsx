@@ -17,6 +17,7 @@ import TeamCreation from './components/TeamCreation';
 import TeamList from './components/TeamList';
 import MatchSimulation from './components/MatchSimulation';
 import Maps from './pages/maps';
+import TeamEditor from './components/TeamEditor';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -114,6 +115,7 @@ const AppContent: React.FC = () => {
             <Route path="/team-creation" element={<TeamCreation />} />
             <Route path="/match-simulation" element={<MatchSimulation />} />
             <Route path="/maps" element={<Maps />} />
+            <Route path="/teams/:teamId/edit" element={<TeamEditor />} />
             {/* Default route */}
             <Route path="*" element={<TeamList />} />
           </Routes>

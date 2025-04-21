@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -16,7 +17,9 @@ import {
   IconButton,
   Tooltip,
   Divider,
+  Button,
 } from '@mui/material';
+import { Edit as EditIcon } from '@mui/icons-material';
 import { AppDispatch, RootState } from '../store';
 import { fetchTeamsThunk } from '../store/thunks/gameThunks';
 import { Player, Team } from '../store/slices/gameSlice';
@@ -30,7 +33,7 @@ const StatBar: React.FC<{ label: string; value: number }> = ({ label, value }) =
         {label}
       </Typography>
       <Typography variant="caption" color="text.primary">
-        {value.toFixed(1)}
+        {value}
       </Typography>
     </Box>
     <LinearProgress
@@ -57,13 +60,16 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
             <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
-              {player.firstName[0]}
+              {player.gamerTag[0]}
             </Avatar>
             <Box>
               <Typography variant="h6" sx={{ mb: 0.5 }}>
-                {player.firstName} "{player.gamerTag}" {player.lastName}
+                "{player.gamerTag}"
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {player.firstName} {player.lastName}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
                 <Chip 
                   label={player.primaryRole}
                   size="small"
@@ -89,7 +95,7 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => {
               <Grid item xs={6} key={stat}>
                 <StatBar 
                   label={stat.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')} 
-                  value={value} 
+                  value={Math.round(value)} 
                 />
               </Grid>
             ))}
@@ -107,56 +113,27 @@ const PlayerCard: React.FC<{ player: Player }> = ({ player }) => {
 };
 
 const TeamCard: React.FC<{ team: Team }> = ({ team }) => {
+  const navigate = useNavigate();
   const startTime = PerformanceMonitor.startMeasure('TeamCard');
   
   try {
     const content = (
       <Grow in timeout={300}>
-        <Paper elevation={2} sx={{ 
-          mb: 4,
-          overflow: 'hidden',
-          transition: 'transform 0.2s, box-shadow 0.2s',
-          '&:hover': {
-            transform: 'translateY(-4px)',
-            boxShadow: 4,
-          },
-        }}>
-          <Box sx={{ 
-            p: 3, 
-            background: 'linear-gradient(45deg, primary.main, primary.dark)',
-            color: 'white',
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Paper elevation={3} sx={{ mb: 3, overflow: 'hidden' }}>
+          <Box sx={{ p: 3, bgcolor: 'primary.main', color: 'white' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Avatar 
-                  sx={{ 
-                    width: 64, 
-                    height: 64,
-                    bgcolor: 'white',
-                    color: 'primary.main',
-                    mr: 2,
-                  }}
-                >
+                <Avatar sx={{ width: 56, height: 56, bgcolor: 'white', color: 'primary.main', mr: 2 }}>
                   {team.name[0]}
                 </Avatar>
                 <Box>
-                  <Typography variant="h4" gutterBottom>
-                    {team.name}
+                  <Typography variant="h5">{team.name}</Typography>
+                  <Typography variant="subtitle1">
+                    {team.region} • {team.reputation.toFixed(1)} Rating
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Chip 
-                      label={`Region: ${team.region}`}
-                      size="small"
-                      sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}
-                    />
-                    <Chip 
-                      label={`Reputation: ${team.reputation}`}
-                      size="small"
-                      sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}
-                    />
-                  </Box>
                 </Box>
               </Box>
+              
               <Box sx={{ textAlign: 'right' }}>
                 <Typography variant="h6">
                   {team.stats.wins}W - {team.stats.losses}L
@@ -164,6 +141,16 @@ const TeamCard: React.FC<{ team: Team }> = ({ team }) => {
                 <Typography variant="body2">
                   Tournaments Won: {team.stats.tournaments_won}
                 </Typography>
+                <Button 
+                  variant="contained" 
+                  color="secondary" 
+                  size="small"
+                  startIcon={<EditIcon />}
+                  onClick={() => navigate(`/teams/${team.id}/edit`)}
+                  sx={{ mt: 1 }}
+                >
+                  Edit Team
+                </Button>
               </Box>
             </Box>
           </Box>

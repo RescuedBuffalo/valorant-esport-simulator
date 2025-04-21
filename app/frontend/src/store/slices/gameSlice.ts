@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { fetchTeamsThunk, createTeamThunk, fetchRegionsThunk, simulateMatchThunk, fetchTeamByIdThunk } from '../thunks/gameThunks';
+import { fetchTeamsThunk, createTeamThunk, fetchRegionsThunk, simulateMatchThunk, fetchTeamByIdThunk, updateTeamThunk, updatePlayerThunk, addPlayerToTeamThunk, removePlayerFromTeamThunk } from '../thunks/gameThunks';
 
 export interface Player {
   id: string;
@@ -161,6 +161,121 @@ const gameSlice = createSlice({
       .addCase(fetchTeamByIdThunk.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message || 'Failed to fetch team';
+      })
+      // Handle team updates
+      .addCase(updateTeamThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateTeamThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        
+        // Update the team in the teams array
+        const updatedTeam = action.payload;
+        const index = state.teams.findIndex(team => team.id === updatedTeam.id);
+        
+        if (index !== -1) {
+          state.teams[index] = updatedTeam;
+        }
+        
+        // If this is the current team, update it too
+        if (state.currentTeam && state.currentTeam.id === updatedTeam.id) {
+          state.currentTeam = updatedTeam;
+        }
+      })
+      .addCase(updateTeamThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Handle player updates
+      .addCase(updatePlayerThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updatePlayerThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        const updatedPlayer = action.payload;
+        const teamId = updatedPlayer.teamId;
+        
+        // Update player in team's player list
+        const teamIndex = state.teams.findIndex(team => team.id === teamId);
+        if (teamIndex !== -1) {
+          const playerIndex = state.teams[teamIndex].players.findIndex(
+            player => player.id === updatedPlayer.id
+          );
+          
+          if (playerIndex !== -1) {
+            state.teams[teamIndex].players[playerIndex] = updatedPlayer;
+          }
+        }
+        
+        // Update in currentTeam if it's the same team
+        if (state.currentTeam && state.currentTeam.id === teamId) {
+          const playerIndex = state.currentTeam.players.findIndex(
+            player => player.id === updatedPlayer.id
+          );
+          
+          if (playerIndex !== -1) {
+            state.currentTeam.players[playerIndex] = updatedPlayer;
+          }
+        }
+      })
+      .addCase(updatePlayerThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Handle adding a player to a team
+      .addCase(addPlayerToTeamThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(addPlayerToTeamThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        const newPlayer = action.payload;
+        const teamId = newPlayer.teamId;
+        
+        // Add player to team's player list
+        const teamIndex = state.teams.findIndex(team => team.id === teamId);
+        if (teamIndex !== -1) {
+          state.teams[teamIndex].players.push(newPlayer);
+        }
+        
+        // Add to currentTeam if it's the same team
+        if (state.currentTeam && state.currentTeam.id === teamId) {
+          state.currentTeam.players.push(newPlayer);
+        }
+      })
+      .addCase(addPlayerToTeamThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      // Handle removing a player from a team
+      .addCase(removePlayerFromTeamThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(removePlayerFromTeamThunk.fulfilled, (state, action) => {
+        state.loading = false;
+        const { teamId, playerId } = action.meta.arg;
+        
+        // Remove player from team's player list
+        const teamIndex = state.teams.findIndex(team => team.id === teamId);
+        if (teamIndex !== -1) {
+          state.teams[teamIndex].players = state.teams[teamIndex].players.filter(
+            player => player.id !== playerId
+          );
+        }
+        
+        // Remove from currentTeam if it's the same team
+        if (state.currentTeam && state.currentTeam.id === teamId) {
+          state.currentTeam.players = state.currentTeam.players.filter(
+            player => player.id !== playerId
+          );
+        }
+      })
+      .addCase(removePlayerFromTeamThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
