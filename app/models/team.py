@@ -202,3 +202,35 @@ class Team(Base):
     def pay_salaries(self) -> float:
         """Pay weekly salaries to players and return total cost."""
         return sum(player.salary for player in self.players) 
+    
+    def to_dict(self):
+        """Convert to dictionary representation for API responses."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "tag": self.tag,
+            "region": self.region,
+            "foundedDate": self.founded_date.isoformat() if self.founded_date else None,
+            "budget": self.budget,
+            "weeklySalaryCap": self.weekly_salary_cap,
+            "sponsorIncome": self.sponsor_income,
+            "merchandiseIncome": self.merchandise_income,
+            "facilityLevel": self.facility_level,
+            "trainingQuality": self.training_quality,
+            "staffQuality": self.staff_quality,
+            "reputation": self.reputation,
+            "globalRanking": self.global_ranking,
+            "regionalRanking": self.regional_ranking,
+            "tournamentWins": self.tournament_wins,
+            "matchWins": self.match_wins,
+            "matchLosses": self.match_losses,
+            "playstyle": self.playstyle,
+            "mapStats": self.map_stats,
+            "hasAcademyTeam": self.has_academy_team,
+            "academyTeamId": self.academy_team_id,
+            "players": [player.to_dict() for player in self.players],
+            "activeRoster": [player.to_dict() for player in self.active_roster],
+            "substitutes": [player.to_dict() for player in self.substitutes],
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None
+        }

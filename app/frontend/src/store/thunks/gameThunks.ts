@@ -7,7 +7,7 @@ export const fetchTeamsThunk = createAsyncThunk(
   'game/fetchTeams',
   async () => {
     try {
-      const response = await axios.get(`${config.API_URL}/api/v1/teams`);
+      const response = await axios.get(`${config.API_URL}/api/v1/teams/`);
       console.log('API Response:', response.data);
       // The API returns { teams: Team[] }, so we need to extract the teams array
       return response.data.teams || [];
@@ -20,7 +20,7 @@ export const fetchTeamsThunk = createAsyncThunk(
 
 export const createTeamThunk = createAsyncThunk(
   'game/createTeam',
-  async (teamData: { name: string; region: string }) => {
+  async (teamData: { name: string; region: string; tag?: string; budget?: number }) => {
     try {
       const response = await axios.post(`${config.API_URL}/api/v1/teams`, teamData);
       console.log('Create Team Response:', response.data);

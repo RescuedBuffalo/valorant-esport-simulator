@@ -3,7 +3,7 @@ Main application entry point.
 """
 import logging
 import traceback
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -11,7 +11,7 @@ from app.core.analytics import Analytics
 from app.core.config import settings
 from app.db.session import engine
 from app.db.init_db import init_db
-from app.models import match_history, team, player
+from app.models import match_history, team, player, league
 
 # Initialize the database
 init_db()
@@ -73,16 +73,27 @@ async def track_requests(request: Request, call_next):
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
-    return {"message": "Welcome to Valorant Esports Simulator API"}
+    """Root endpoint providing API information."""
+    return {
+        "message": "Welcome to Valorant Team Simulator API",
+        "version": "0.1.0",
+        "endpoints": {
+            "teams": "/api/v1/teams",
+            "players": "/api/v1/players",
+            "matches": "/api/v1/matches",
+            "tournaments": "/api/v1/tournaments",
+            "leagues": "/api/v1/leagues"
+        }
+    }
 
 # Import and include routers
-from app.api.v1 import team, player, match, tournament
+from app.api.v1 import team, player, match, tournament, league
 
 app.include_router(team.router, prefix="/api/v1/teams", tags=["teams"])
 app.include_router(player.router, prefix="/api/v1/players", tags=["players"])
 app.include_router(match.router, prefix="/api/v1/matches", tags=["matches"])
 app.include_router(tournament.router, prefix="/api/v1/tournaments", tags=["tournaments"])
+app.include_router(league.router, prefix="/api/v1", tags=["leagues"])
 
 @app.get("/api/v1/regions")
 async def get_regions():
@@ -91,17 +102,35 @@ async def get_regions():
         "regions": ["NA", "EU", "APAC", "BR", "LATAM"]
     }
 
+@app.exception_handler(404)
+async def custom_404_handler(request: Request, exc: HTTPException):
+    """Custom handler for 404 errors."""
+    logger.warning(f"Not found: {request.url.path}")
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "Not Found",
+            "message": f"The requested URL {request.url.path} was not found on this server.",
+            "available_endpoints": {
+                "teams": "/api/v1/teams",
+                "players": "/api/v1/players",
+                "matches": "/api/v1/matches",
+                "tournaments": "/api/v1/tournaments",
+                "leagues": "/api/v1/leagues"
+            }
+        }
+    )
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler."""
-    # Log the full exception with traceback
-    error_details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    logger.error(f"Unhandled exception for {request.method} {request.url.path}:\n{error_details}")
-    
-    # Return a generic error response to the client
+    """Global exception handler for unhandled errors."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"message": "Internal server error", "error_type": str(type(exc).__name__)}
+        content={
+            "error": "Internal Server Error",
+            "message": "An unexpected error occurred. Please try again later."
+        }
     )
 
 """
