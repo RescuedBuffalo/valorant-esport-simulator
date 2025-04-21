@@ -340,58 +340,48 @@ class MatchEngine:
     
     def _simulate_round(self) -> Dict[str, Any]:
         """Simulates a single round of play."""
-        # Initialize the economy log at the start of the round
-        if hasattr(self, 'economy_logs'):
-            economy_log = {
-                'round_number': self.round_number,
-                'team_a_start': self.economy['team_a'],
-                'team_b_start': self.economy['team_b'],
-                'team_a_spend': 0,
-                'team_b_spend': 0,
-                'notes': []
-            }
-            self.economy_logs.append(economy_log)
-            
-        # Check if this is a pistol round (first round of each half)
-        is_pistol_round = self.round_number == 0 or self.round_number == 12
-            
-        # Buy phase
-        team_a_weapons, team_a_armor = self._buy_phase(
-            self.current_match.team_a,
-            self.economy["team_a"],
-            self.loss_streaks.get("team_a", 0),
-            "team_a"
-        )
-        team_b_weapons, team_b_armor = self._buy_phase(
-            self.current_match.team_b,
-            self.economy["team_b"],
-            self.loss_streaks.get("team_b", 0),
-            "team_b"
-        )
+        from random import random, choice, randint
         
-        # Initialize round state
-        alive_players = {
-            "team_a": self.current_match.team_a.copy(),
-            "team_b": self.current_match.team_b.copy()
-        }
-        spike_planted = False
-        plant_time = None
-        clutch_player = None
+        # Find the attacker and defender
+        attacking_side = 'team_a' if self.round_number < 12 else 'team_b'
+        defending_side = 'team_b' if attacking_side == 'team_a' else 'team_a'
         
-        # Track weapons and armor
         round_weapons = {
-            "team_a": team_a_weapons,
-            "team_b": team_b_weapons
-        }
-        round_armor = {
-            "team_a": team_a_armor,
-            "team_b": team_b_armor
+            'team_a': {},
+            'team_b': {}
         }
         
-        # Compile player loadouts for the round
+        round_armor = {
+            'team_a': {},
+            'team_b': {}
+        }
+        
+        # Determine round type for each team based on economy and loss streak
+        team_a_round_type = self._determine_round_type(self.economy['team_a'], self.loss_streaks['team_a'])
+        team_b_round_type = self._determine_round_type(self.economy['team_b'], self.loss_streaks['team_b'])
+        
+        # Log the round types
+        round_notes = [
+            f"Round {self.round_number + 1}: Team A {team_a_round_type.replace('_', ' ')}, Team B {team_b_round_type.replace('_', ' ')}"
+        ]
+        
+        # Buy weapons for team_a based on round type
+        team_a_spend, round_weapons['team_a'], round_armor['team_a'] = self._buy_phase(
+            self.current_match.team_a, 
+            'team_a', 
+            team_a_round_type
+        )
+        
+        # Buy weapons for team_b based on round type
+        team_b_spend, round_weapons['team_b'], round_armor['team_b'] = self._buy_phase(
+            self.current_match.team_b, 
+            'team_b', 
+            team_b_round_type
+        )
+        
         player_loadouts = {
-            "team_a": {},
-            "team_b": {}
+            'team_a': {},
+            'team_b': {}
         }
         
         # Add loadout data for team A
@@ -401,7 +391,9 @@ class MatchEngine:
                 "weapon": round_weapons["team_a"].get(player_id, "Classic"),
                 "armor": round_armor["team_a"].get(player_id, False),
                 "total_spend": 0,  # Will be calculated below
-                "agent": self.player_agents.get(player_id, "Unknown")  # Add agent to loadout
+                "agent": self.player_agents.get(player_id, "Unknown"),  # Add agent to loadout
+                "ability_used": False,  # Track if an ability was used
+                "ability_impact": None  # Track the impact of ability use
             }
             
             # Calculate the spend
@@ -418,7 +410,9 @@ class MatchEngine:
                 "weapon": round_weapons["team_b"].get(player_id, "Classic"),
                 "armor": round_armor["team_b"].get(player_id, False),
                 "total_spend": 0,  # Will be calculated below
-                "agent": self.player_agents.get(player_id, "Unknown")  # Add agent to loadout
+                "agent": self.player_agents.get(player_id, "Unknown"),  # Add agent to loadout
+                "ability_used": False,  # Track if an ability was used
+                "ability_impact": None  # Track the impact of ability use
             }
             
             # Calculate the spend
@@ -431,301 +425,213 @@ class MatchEngine:
         # Initialize map data for this round
         map_data = RoundMapData(map_name=self.current_match.map_name)
         
-        # Get the map layout
-        map_layout = map_collection.get_map(self.current_match.map_name)
-        if not map_layout:
-            logging.warning(f"Map {self.current_match.map_name} not found in map collection, using default positions")
-            map_layout = self._get_default_map_layout()
-            
-        # Track event time in seconds
-        event_time = 0.0
-        
-        # Initialize player positions based on map data - attacking team starts at attacker spawn, defending at defender spawn
-        attacking_team = "team_a" if self.round_number % 24 < 12 else "team_b"
-        defending_team = "team_b" if attacking_team == "team_a" else "team_a"
-        
-        # Place players at their respective spawns with some random variation
-        for player in self.current_match.team_a:
-            player_id = player["id"]
-            map_data.player_positions[player_id] = []
-            
-            # Determine initial position based on attacking/defending side
-            if "team_a" == attacking_team:
-                base_pos = map_layout.attacker_spawn
-                # Find attacker spawn callout
-                spawn_callout = next((k for k, v in map_layout.callouts.items() 
-                                    if v.area_type == MapArea.ATTACKER_SPAWN), None)
-            else:
-                base_pos = map_layout.defender_spawn
-                # Find defender spawn callout
-                spawn_callout = next((k for k, v in map_layout.callouts.items() 
-                                    if v.area_type == MapArea.DEFENDER_SPAWN), None)
-                
-            # Add random variation to prevent players from being at the exact same spot
-            pos = (
-                base_pos[0] + random.uniform(-0.05, 0.05),
-                base_pos[1] + random.uniform(-0.05, 0.05)
-            )
-            
-            # Record initial position
-            map_data.player_positions[player_id].append(
-                PlayerPosition(
-                    player_id=player_id,
-                    position=pos,
-                    rotation=random.uniform(0, 360),
-                    callout=spawn_callout
-                )
-            )
-            
-        for player in self.current_match.team_b:
-            player_id = player["id"]
-            map_data.player_positions[player_id] = []
-            
-            # Determine initial position based on attacking/defending side
-            if "team_b" == attacking_team:
-                base_pos = map_layout.attacker_spawn
-                # Find attacker spawn callout
-                spawn_callout = next((k for k, v in map_layout.callouts.items() 
-                                    if v.area_type == MapArea.ATTACKER_SPAWN), None)
-            else:
-                base_pos = map_layout.defender_spawn
-                # Find defender spawn callout
-                spawn_callout = next((k for k, v in map_layout.callouts.items() 
-                                    if v.area_type == MapArea.DEFENDER_SPAWN), None)
-                
-            # Add random variation to prevent players from being at the exact same spot
-            pos = (
-                base_pos[0] + random.uniform(-0.05, 0.05),
-                base_pos[1] + random.uniform(-0.05, 0.05)
-            )
-            
-            # Record initial position
-            map_data.player_positions[player_id].append(
-                PlayerPosition(
-                    player_id=player_id,
-                    position=pos,
-                    rotation=random.uniform(0, 360),
-                    callout=spawn_callout
-                )
-            )
-        
-        # Simulate pre-plant phase
-        while len(alive_players["team_a"]) > 0 and len(alive_players["team_b"]) > 0 and not spike_planted:
-            # Move time forward
-            event_time += random.uniform(5.0, 15.0)  # Random time increment between engagements
-            
-            # Move players around the map based on attacking/defending side
-            self._simulate_player_movement(map_data, alive_players, attacking_team, defending_team, map_layout, event_time)
-            
-            # Simulate engagements
-            if random.random() < 0.7:  # 70% chance of engagement
-                # Select random players for engagement
-                attacker = random.choice(alive_players[attacking_team])
-                defender = random.choice(alive_players[defending_team])
-                
-                # Determine engagement distance
-                distance = random.choice(["close", "medium", "long"])
-                
-                # Get weapons and armor
-                att_weapon = round_weapons[attacking_team][attacker["id"]]
-                def_weapon = round_weapons[defending_team][defender["id"]]
-                att_armor = round_armor[attacking_team][attacker["id"]]
-                def_armor = round_armor[defending_team][defender["id"]]
-                
-                # Get player positions for this engagement
-                att_pos = map_data.player_positions[attacker["id"]][-1].position
-                def_pos = map_data.player_positions[defender["id"]][-1].position
-                
-                duel_result = self._simulate_duel(
-                    attacker,
-                    defender,
-                    att_weapon,
-                    def_weapon,
-                    distance,
-                    att_armor,
-                    def_armor
-                )
-                
-                # Record kill event
-                if duel_result:  # Attacker wins
-                    victim = defender
-                    killer = attacker
-                    alive_players[defending_team].remove(defender)
-                    
-                    # Final position for eliminated player
-                    map_data.player_positions[victim["id"]].append(
-                        PlayerPosition(
-                            player_id=victim["id"],
-                            position=def_pos,
-                            rotation=random.uniform(0, 360),
-                            callout=map_data.player_positions[victim["id"]][-1].callout
-                        )
-                    )
-                    
-                    # If defender side, add to defender positions, else to attacker positions
-                    if defending_team == "team_a":
-                        map_data.attacker_positions[victim["id"]] = def_pos
-                    else:
-                        map_data.defender_positions[victim["id"]] = def_pos
-                else:  # Defender wins
-                    victim = attacker
-                    killer = defender
-                    alive_players[attacking_team].remove(attacker)
-                    
-                    # Final position for eliminated player
-                    map_data.player_positions[victim["id"]].append(
-                        PlayerPosition(
-                            player_id=victim["id"],
-                            position=att_pos,
-                            rotation=random.uniform(0, 360),
-                            callout=map_data.player_positions[victim["id"]][-1].callout
-                        )
-                    )
-                    
-                    # If attacker side, add to attacker positions, else to defender positions
-                    if attacking_team == "team_a":
-                        map_data.attacker_positions[victim["id"]] = att_pos
-                    else:
-                        map_data.defender_positions[victim["id"]] = att_pos
-                
-                # Record the kill event
-                map_data.events.append(
-                    MapEvent(
-                        event_type="kill",
-                        position=map_data.player_positions[victim["id"]][-1].position,
-                        timestamp=event_time,
-                        player_id=killer["id"],
-                        target_id=victim["id"],
-                        details={
-                            "weapon": round_weapons[attacking_team if killer in alive_players[attacking_team] else defending_team][killer["id"]],
-                            "distance": distance
-                        }
-                    )
-                )
-                    
-                # Check for clutch situation
-                if len(alive_players[attacking_team]) == 1 and len(alive_players[defending_team]) >= 2:
-                    clutch_player = list(alive_players[attacking_team])[0]["id"]
-            
-            # Chance to plant spike
-            if (attacking_team == "team_a" and len(alive_players["team_a"]) > 0) or \
-               (attacking_team == "team_b" and len(alive_players["team_b"]) > 0):
-                if random.random() < 0.3:  # 30% chance to plant
-                    spike_planted = True
-                    plant_time = datetime.now()
-                    
-                    # Determine which site to plant on
-                    site_options = ["A", "B"]
-                    if "C" in map_layout.sites:
-                        site_options.append("C")
-                    chosen_site = random.choice(site_options)
-                    
-                    # Find a player from attacking team to plant
-                    planter = random.choice(alive_players[attacking_team])
-                    
-                    # Find the site callout
-                    site_callout = next((k for k, v in map_layout.callouts.items() 
-                                      if v.area_type == getattr(MapArea, f"{chosen_site}_SITE")), None)
-                    
-                    # Get site position from map layout
-                    if site_callout and site_callout in map_layout.callouts:
-                        plant_pos = map_layout.callouts[site_callout].position
-                        # Add small random variation
-                        plant_pos = (
-                            plant_pos[0] + random.uniform(-0.03, 0.03),
-                            plant_pos[1] + random.uniform(-0.03, 0.03)
-                        )
-                    else:
-                        # Fallback to a random position if site not found
-                        plant_pos = (random.uniform(0.3, 0.7), random.uniform(0.3, 0.7))
-                    
-                    # Record spike plant position
-                    map_data.spike_plant_position = plant_pos
-                    
-                    # Move planter to spike site
-                    map_data.player_positions[planter["id"]].append(
-                        PlayerPosition(
-                            player_id=planter["id"],
-                            position=plant_pos,
-                            rotation=random.uniform(0, 360),
-                            callout=site_callout
-                        )
-                    )
-                    
-                    # Record spike plant event
-                    map_data.events.append(
-                        MapEvent(
-                            event_type="plant",
-                            position=plant_pos,
-                            timestamp=event_time,
-                            player_id=planter["id"],
-                            details={
-                                "site": chosen_site
-                            }
-                        )
-                    )
-                    
-                    # Move other attacking players toward the site
-                    for player in alive_players[attacking_team]:
-                        if player["id"] != planter["id"]:
-                            # Move to a position near the spike
-                            nearby_pos = (
-                                plant_pos[0] + random.uniform(-0.1, 0.1),
-                                plant_pos[1] + random.uniform(-0.1, 0.1)
-                            )
-                            
-                            map_data.player_positions[player["id"]].append(
-                                PlayerPosition(
-                                    player_id=player["id"],
-                                    position=nearby_pos,
-                                    rotation=random.uniform(0, 360),
-                                    callout=site_callout
-                                )
-                            )
-        
-        # Determine round winner
-        winner = self._determine_round_winner(alive_players, spike_planted)
-        
-        # Record spike plant status for economy
-        if hasattr(self, 'economy_logs') and self.economy_logs:
-            self.economy_logs[-1]['spike_planted'] = spike_planted
-            self.economy_logs[-1]['winner'] = winner
-        
-        # Get player credits if we have a credits tracking mechanism
-        player_credits = {}
-        if hasattr(self, 'player_credits'):
-            player_credits = self.player_credits.copy()
-        
-        # Record final positions for all remaining alive players
-        for team_id, players in alive_players.items():
-            for player in players:
+        # Simulate ability usage
+        if self.round_number > 0:  # Skip first round for ability usage
+            # Ability usage for Team A
+            for player in self.current_match.team_a:
                 player_id = player["id"]
-                if player_id in map_data.player_positions and map_data.player_positions[player_id]:
-                    last_pos = map_data.player_positions[player_id][-1].position
+                agent_name = self.player_agents.get(player_id, "Unknown")
+                utility_skill = player.get("coreStats", {}).get("utilityUsage", 50)
+                
+                # Probability of using an ability increases with utility skill
+                use_ability_chance = min(0.8, 0.4 + (utility_skill / 100) * 0.4)
+                if random() < use_ability_chance:
+                    player_loadouts["team_a"][player_id]["ability_used"] = True
                     
-                    # Store in the appropriate positions dictionary
-                    if (team_id == "team_a" and attacking_team == "team_a") or \
-                       (team_id == "team_b" and attacking_team == "team_b"):
-                        map_data.attacker_positions[player_id] = last_pos
-                    else:
-                        map_data.defender_positions[player_id] = last_pos
+                    # Determine ability impact based on probabilities
+                    impact_roll = random()
+                    if impact_roll < 0.05:  # 5% chance for perfect utility
+                        player_loadouts["team_a"][player_id]["ability_impact"] = "perfect"
+                        round_notes.append(f"{agent_name} ({player.get('gamerTag', 'Player')}) used utility perfectly!")
+                    elif impact_roll < 0.45:  # 40% chance for great utility
+                        player_loadouts["team_a"][player_id]["ability_impact"] = "great"
+                        round_notes.append(f"{agent_name} ({player.get('gamerTag', 'Player')}) used utility to great effect")
+                    elif impact_roll < 0.95:  # 50% chance for good utility
+                        player_loadouts["team_a"][player_id]["ability_impact"] = "good"
+                    else:  # 5% chance for bad utility
+                        player_loadouts["team_a"][player_id]["ability_impact"] = "bad"
+                        round_notes.append(f"{agent_name} ({player.get('gamerTag', 'Player')}) misused utility")
+            
+            # Ability usage for Team B
+            for player in self.current_match.team_b:
+                player_id = player["id"]
+                agent_name = self.player_agents.get(player_id, "Unknown")
+                utility_skill = player.get("coreStats", {}).get("utilityUsage", 50)
+                
+                # Probability of using an ability increases with utility skill
+                use_ability_chance = min(0.8, 0.4 + (utility_skill / 100) * 0.4)
+                if random() < use_ability_chance:
+                    player_loadouts["team_b"][player_id]["ability_used"] = True
+                    
+                    # Determine ability impact based on probabilities
+                    impact_roll = random()
+                    if impact_roll < 0.05:  # 5% chance for perfect utility
+                        player_loadouts["team_b"][player_id]["ability_impact"] = "perfect"
+                        round_notes.append(f"{agent_name} ({player.get('gamerTag', 'Player')}) used utility perfectly!")
+                    elif impact_roll < 0.45:  # 40% chance for great utility
+                        player_loadouts["team_b"][player_id]["ability_impact"] = "great"
+                        round_notes.append(f"{agent_name} ({player.get('gamerTag', 'Player')}) used utility to great effect")
+                    elif impact_roll < 0.95:  # 50% chance for good utility
+                        player_loadouts["team_b"][player_id]["ability_impact"] = "good"
+                    else:  # 5% chance for bad utility
+                        player_loadouts["team_b"][player_id]["ability_impact"] = "bad"
+                        round_notes.append(f"{agent_name} ({player.get('gamerTag', 'Player')}) misused utility")
+        
+        # Calculate team advantages considering ability usage
+        att_team = attacking_side
+        def_team = defending_side
+        
+        # Basic team advantage calculation
+        att_advantage = 0.0
+        def_advantage = 0.0
+        
+        # Weapon and armor advantages
+        for player_id, loadout in player_loadouts[att_team].items():
+            weapon = loadout["weapon"]
+            if weapon in ["Vandal", "Phantom", "Operator"]:
+                att_advantage += 0.05
+            elif weapon in ["Bulldog", "Guardian", "Marshal"]:
+                att_advantage += 0.03
+            
+            if loadout["armor"]:
+                att_advantage += 0.02
+                
+            # Add advantage for ability usage
+            if loadout["ability_used"]:
+                if loadout["ability_impact"] == "perfect":
+                    att_advantage += 0.15
+                elif loadout["ability_impact"] == "great":
+                    att_advantage += 0.10
+                elif loadout["ability_impact"] == "good":
+                    att_advantage += 0.05
+                elif loadout["ability_impact"] == "bad":
+                    att_advantage -= 0.05
+        
+        for player_id, loadout in player_loadouts[def_team].items():
+            weapon = loadout["weapon"]
+            if weapon in ["Vandal", "Phantom", "Operator"]:
+                def_advantage += 0.05
+            elif weapon in ["Bulldog", "Guardian", "Marshal"]:
+                def_advantage += 0.03
+            
+            if loadout["armor"]:
+                def_advantage += 0.02
+                
+            # Add advantage for ability usage
+            if loadout["ability_used"]:
+                if loadout["ability_impact"] == "perfect":
+                    def_advantage += 0.15
+                elif loadout["ability_impact"] == "great":
+                    def_advantage += 0.10
+                elif loadout["ability_impact"] == "good":
+                    def_advantage += 0.05
+                elif loadout["ability_impact"] == "bad":
+                    def_advantage -= 0.05
+        
+        # Defenders typically have an advantage in terms of positioning
+        def_advantage += 0.1
+        
+        # Economy advantage
+        eco_factor = 0.05 * (self.economy[att_team] - self.economy[def_team]) / 5000
+        
+        # Determine if spike is planted
+        spike_planted = random() < (0.5 + (att_advantage - def_advantage) * 0.3)
+        
+        # Adjust win probability
+        base_win_prob = 0.5
+        win_prob = base_win_prob + (att_advantage - def_advantage) + eco_factor
+        
+        # Spike plant gives attackers additional advantage
+        if spike_planted:
+            win_prob += 0.15
+            round_notes.append("Spike planted")
+        
+        # Clamp between reasonable values
+        win_prob = max(0.2, min(0.8, win_prob))
+        
+        # Determine winner
+        attacking_wins = random() < win_prob
+        winning_team = att_team if attacking_wins else def_team
+        losing_team = def_team if attacking_wins else att_team
+        
+        # Reset loss streaks for winning team and increment for losing team
+        self.loss_streaks[winning_team] = 0
+        self.loss_streaks[losing_team] += 1
+        
+        # Calculate economy rewards
+        # Base reward is 3000 for winning
+        win_reward = 3000
+        
+        # Additional rewards
+        lose_reward = 1900
+        
+        # Loss bonuses based on streak
+        loss_bonus = min(500 * self.loss_streaks[losing_team], 1900)
+        
+        # Add plant bonus if applicable
+        plant_bonus = 300 if spike_planted else 0
+        
+        # Update economy for next round
+        self.economy[winning_team] += win_reward
+        self.economy[losing_team] += lose_reward + loss_bonus
+        
+        if spike_planted and att_team != winning_team:
+            self.economy[att_team] += plant_bonus
+        
+        # Update scores
+        if winning_team == 'team_a':
+            self.score['team_a'] += 1
+        else:
+            self.score['team_b'] += 1
+            
+        # Determine round summary
+        round_summary = ""
+        if winning_team == att_team:
+            if spike_planted:
+                round_summary = "Attackers win - Spike detonated"
+            else:
+                round_summary = "Attackers win - Defenders eliminated"
+        else:
+            if spike_planted:
+                round_summary = "Defenders win - Spike defused"
+            else:
+                round_summary = "Defenders win - Attackers eliminated"
+        
+        round_notes.append(round_summary)
+        
+        # Record the economy log for this round
+        self.economy_logs.append({
+            'round_number': self.round_number,
+            'team_a_start': self.economy['team_a'] - (win_reward if winning_team == 'team_a' else (lose_reward + loss_bonus)),
+            'team_b_start': self.economy['team_b'] - (win_reward if winning_team == 'team_b' else (lose_reward + loss_bonus)),
+            'team_a_spend': team_a_spend,
+            'team_b_spend': team_b_spend,
+            'team_a_end': self.economy['team_a'],
+            'team_b_end': self.economy['team_b'],
+            'team_a_reward': win_reward if winning_team == 'team_a' else (lose_reward + loss_bonus + (plant_bonus if spike_planted and att_team == 'team_a' else 0)),
+            'team_b_reward': win_reward if winning_team == 'team_b' else (lose_reward + loss_bonus + (plant_bonus if spike_planted and att_team == 'team_b' else 0)),
+            'winner': winning_team,
+            'spike_planted': spike_planted,
+            'notes': round_notes
+        })
+        
+        self.round_number += 1
         
         return {
-            "winner": winner,
-            "economy": self.economy.copy(),
-            "spike_planted": spike_planted,
-            "clutch_player": clutch_player,
-            "survivors": {
-                "team_a": len(alive_players["team_a"]),
-                "team_b": len(alive_players["team_b"])
+            'winner': winning_team,
+            'round_number': self.round_number - 1,
+            'spike_planted': spike_planted,
+            'score': {
+                'team_a': self.score['team_a'],
+                'team_b': self.score['team_b']
             },
-            "weapons": round_weapons,
-            "armor": round_armor,
-            "player_loadouts": player_loadouts,
-            "player_credits": player_credits,
-            "is_pistol_round": is_pistol_round,
-            "player_agents": self.player_agents,  # Include player agent selections in round result
-            "map_data": map_data.to_dict()  # Convert map_data to dictionary for JSON serialization
+            'economy': {
+                'team_a': self.economy['team_a'],
+                'team_b': self.economy['team_b']
+            },
+            'player_loadouts': player_loadouts,
+            'summary': round_summary,
+            'notes': round_notes
         }
         
     def _simulate_player_movement(self, map_data, alive_players, attacking_team, defending_team, map_layout, event_time):

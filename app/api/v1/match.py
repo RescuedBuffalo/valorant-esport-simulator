@@ -17,6 +17,8 @@ match_engine = MatchEngine()
 class MatchRequest(BaseModel):
     team_a: str
     team_b: str
+    map_name: Optional[str] = "Haven"
+    agent_selections: Optional[Dict[str, str]] = None
 
 def transform_for_engine(players):
     """Transform player data from database format to match engine format."""
@@ -62,7 +64,7 @@ def transform_for_engine(players):
 @router.post("/simulate")
 async def simulate_match(match_req: MatchRequest, request: Request, db: Session = Depends(get_db)):
     """Simulate a match between two teams using team IDs or names."""
-    logger.info(f"Match simulation requested: {match_req.team_a} vs {match_req.team_b}")
+    logger.info(f"Match simulation requested: {match_req.team_a} vs {match_req.team_b} on {match_req.map_name}")
     
     # Log request details
     client_host = request.client.host if request.client else "unknown"
@@ -108,10 +110,16 @@ async def simulate_match(match_req: MatchRequest, request: Request, db: Session 
         team_a_players = transform_for_engine(team_a_players_db)
         team_b_players = transform_for_engine(team_b_players_db)
         
-        logger.info(f"Starting match simulation between {team_a_db.name} ({len(team_a_players)} players) and {team_b_db.name} ({len(team_b_players)} players)")
+        logger.info(f"Starting match simulation between {team_a_db.name} ({len(team_a_players)} players) and {team_b_db.name} ({len(team_b_players)} players) on {match_req.map_name}")
         
-        # Simulate match using the transformed players
-        result = match_engine.simulate_match(team_a_players, team_b_players, "Haven")
+        # Pass agent selections to match engine if provided
+        if match_req.agent_selections:
+            logger.info(f"Using custom agent selections: {match_req.agent_selections}")
+            # Set any preset agent selections in the match engine
+            match_engine.player_agents = match_req.agent_selections
+        
+        # Simulate match using the transformed players and specified map
+        result = match_engine.simulate_match(team_a_players, team_b_players, match_req.map_name)
         
         # Update team stats in database
         if result["score"]["team_a"] > result["score"]["team_b"]:
