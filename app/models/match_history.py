@@ -76,7 +76,7 @@ class EconomyLog(Base):
 
 class MatchPerformance(Base):
     """Individual player performance in matches."""
-    __tablename__ = "match_history_performances"
+    __tablename__ = "match_history_performances_log"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     match_id = Column(String, ForeignKey("match_history.id"))
