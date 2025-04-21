@@ -8,11 +8,13 @@ from sqlalchemy import select, and_
 from app.models.league import League, Circuit, league_team_association, league_player_association
 from app.models.team import Team
 from app.models.player import Player
+from app.core.prometheus import track_db_operation
 
 class LeagueRepository:
     """Repository for League-related database operations."""
     
     @staticmethod
+    @track_db_operation(operation="insert", table="leagues")
     def create_league(db: Session, league_data: Dict[str, Any]) -> League:
         """Create a new league in the database."""
         league = League(**league_data)
@@ -22,21 +24,25 @@ class LeagueRepository:
         return league
     
     @staticmethod
+    @track_db_operation(operation="select", table="leagues")
     def get_leagues(db: Session, skip: int = 0, limit: int = 100) -> List[League]:
         """Get all leagues with pagination."""
         return db.query(League).offset(skip).limit(limit).all()
     
     @staticmethod
+    @track_db_operation(operation="select", table="leagues")
     def get_league_by_id(db: Session, league_id: str) -> Optional[League]:
         """Get a specific league by its ID."""
         return db.query(League).filter(League.id == league_id).first()
     
     @staticmethod
+    @track_db_operation(operation="select", table="leagues")
     def get_league_by_name(db: Session, name: str) -> Optional[League]:
         """Get a league by its name."""
         return db.query(League).filter(League.name == name).first()
     
     @staticmethod
+    @track_db_operation(operation="update", table="leagues")
     def update_league(db: Session, league_id: str, league_data: Dict[str, Any]) -> Optional[League]:
         """Update a league's details."""
         league = LeagueRepository.get_league_by_id(db, league_id)

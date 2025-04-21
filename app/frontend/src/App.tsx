@@ -7,6 +7,7 @@ import { fetchTeamsThunk, fetchRegionsThunk } from './store/thunks/gameThunks';
 import { fetchLeaguesThunk } from './store/thunks/leagueThunks';
 import { RouteConfig, safeNavigate, isValidRoute } from './utils/routeUtils';
 import { debugLog } from './config';
+import MetricsTracker from './components/MetricsTracker';
 
 // Pages/Components
 import HomePage from './pages/HomePage';
@@ -87,97 +88,54 @@ function App() {
   }
   
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Valorant Team Simulator
+    <>
+      <MetricsTracker />
+      <Box sx={{ flexGrow: 1 }}>
+        <AppBar position="static">
+          <Toolbar>
+            <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+              Valorant Esports Simulator
+            </Typography>
+          </Toolbar>
+          <Tabs 
+            value={routes.findIndex(route => route.path === currentPath)}
+            onChange={handleTabChange}
+            centered
+            textColor="inherit"
+            variant="fullWidth"
+          >
+            {routes.map((route) => (
+              <Tab key={route.path} label={route.name} />
+            ))}
+          </Tabs>
+        </AppBar>
+        
+        <Container maxWidth="lg" sx={{ mt: 4, pb: 4 }}>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/teams" element={<TeamList />} />
+              <Route path="/teams/new" element={<TeamCreate />} />
+              <Route path="/teams/:teamId" element={<TeamEditor />} />
+              <Route path="/matches" element={<MatchSimulation />} />
+              <Route path="/leagues" element={<LeagueList />} />
+              <Route path="/leagues/:leagueId" element={<LeagueDetail />} />
+              <Route path="/leagues/:leagueId/edit" element={<LeagueEdit />} />
+              <Route path="/maps" element={<Maps />} />
+              <Route path="/maps/builder" element={<MapBuilder />} />
+              <Route path="/test" element={<TestPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </ErrorBoundary>
+        </Container>
+        
+        <Box component="footer" sx={{ bgcolor: 'secondary.main', py: 2, color: 'white', textAlign: 'center' }}>
+          <Typography variant="body2">
+            Valorant Esports Simulator © {new Date().getFullYear()}
           </Typography>
-          <Button color="inherit" onClick={() => navigate('/')}>Home</Button>
-        </Toolbar>
-      </AppBar>
-      
-      <Tabs 
-        value={routes.findIndex(route => route.path === currentPath) !== -1 ? 
-               routes.findIndex(route => route.path === currentPath) : 0}
-        onChange={handleTabChange}
-        variant="fullWidth"
-        sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
-      >
-        {routes.map((route) => (
-          <Tab key={route.path} label={route.name} />
-        ))}
-      </Tabs>
-      
-      <Container>
-        <Routes>
-          <Route path="/" element={
-            <ErrorBoundary>
-              <HomePage />
-            </ErrorBoundary>
-          } />
-          <Route path="/teams" element={
-            <ErrorBoundary>
-              <TeamList />
-            </ErrorBoundary>
-          } />
-          <Route path="/teams/create" element={
-            <ErrorBoundary>
-              <TeamCreate />
-            </ErrorBoundary>
-          } />
-          <Route path="/teams/:teamId/edit" element={
-            <ErrorBoundary>
-              <TeamEditor />
-            </ErrorBoundary>
-          } />
-          <Route path="/matches" element={
-            <ErrorBoundary>
-              <MatchSimulation />
-            </ErrorBoundary>
-          } />
-          
-          {/* League Routes */}
-          <Route path="/leagues" element={
-            <ErrorBoundary>
-              <LeagueList />
-            </ErrorBoundary>
-          } />
-          <Route path="/leagues/:leagueId" element={
-            <ErrorBoundary>
-              <LeagueDetail />
-            </ErrorBoundary>
-          } />
-          <Route path="/leagues/:leagueId/edit" element={
-            <ErrorBoundary>
-              <LeagueEdit />
-            </ErrorBoundary>
-          } />
-          
-          {/* Map Routes */}
-          <Route path="/maps" element={
-            <ErrorBoundary>
-              <Maps />
-            </ErrorBoundary>
-          } />
-          <Route path="/maps/builder" element={
-            <ErrorBoundary>
-              <MapBuilder />
-            </ErrorBoundary>
-          } />
-          
-          {/* Test Route */}
-          <Route path="/test" element={
-            <ErrorBoundary>
-              <TestPage />
-            </ErrorBoundary>
-          } />
-          
-          {/* Catch-all route for 404 */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </Container>
-    </Box>
+        </Box>
+      </Box>
+    </>
   );
 }
 

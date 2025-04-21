@@ -190,3 +190,8 @@ CREATE TABLE tournaments (
    - Premium features
    - Cosmetic customization
    - Additional save slots 
+
+## Prometheus Implementation
+To start: "./start-monitoring.sh"
+To start: "./start-prometheus-local.sh"
+To stop: "docker-compose -f docker-compose.monitoring.yml down"
