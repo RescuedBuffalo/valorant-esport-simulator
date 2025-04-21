@@ -24,67 +24,82 @@ FRANCHISE_INTERACTION_COUNT = Counter(
     ["action", "component"]
 )
 
+# Create metrics specifically for MapBuilder
+MAP_BUILDER_ACTION_COUNT = Counter(
+    "app_map_builder_action_count",
+    "Number of MapBuilder actions by type and entity",
+    ["action", "entity_type"]
+)
+
 class PageLoadTimeMetric(BaseModel):
     """Page load time metric data."""
     page: str
     duration_seconds: float
 
-class ApiCallMetric(BaseModel):
-    """API call metric data."""
-    endpoint: str
-    method: str
-    duration_seconds: float
-    status: int
 
-class ErrorMetric(BaseModel):
-    """Error metric data."""
-    error_type: str
-    message: str
-    location: str
+class ComponentRenderTimeMetric(BaseModel):
+    """Component render time metric data."""
+    component: str
+    duration_seconds: float
+
 
 class UserInteractionMetric(BaseModel):
     """User interaction metric data."""
     component: str
     action: str
-    details: Optional[Dict[str, Any]] = None
+    data: Optional[Dict[str, Any]] = None
 
-class CustomMetric(BaseModel):
-    """Custom metric data for extended tracking."""
-    metric_name: str
-    component: str
-    duration_seconds: Optional[float] = None
-    count: Optional[int] = None
-    labels: Optional[Dict[str, str]] = None
 
-@router.post("/page_load_time")
-async def track_page_load_time(metric: PageLoadTimeMetric):
+class FrontendErrorMetric(BaseModel):
+    """Frontend error metric data."""
+    error_type: str
+    location: str
+    message: str
+
+
+class MapBuilderActionMetric(BaseModel):
+    """MapBuilder action metric data."""
+    action: str
+    entity_type: str
+    count: int = 1
+
+
+@router.post("/page_load")
+async def track_page_load(metric: PageLoadTimeMetric):
     """
-    Track frontend page load time.
+    Track page load time.
     """
     observe_page_load_time(metric.page, metric.duration_seconds)
     return {"status": "ok"}
 
-@router.post("/api_call")
-async def track_api_call(metric: ApiCallMetric):
+
+@router.post("/component_render")
+async def track_component_render(metric: ComponentRenderTimeMetric):
     """
-    Track API call metrics from the frontend.
+    Track component render time.
     """
-    REQUEST_LATENCY.labels(
-        method=metric.method,
-        endpoint=metric.endpoint
-    ).observe(metric.duration_seconds)
+    COMPONENT_RENDER_TIME.labels(component=metric.component).observe(metric.duration_seconds)
     return {"status": "ok"}
 
-@router.post("/error")
-async def track_error(metric: ErrorMetric):
+
+@router.post("/frontend_error")
+async def track_frontend_error(metric: FrontendErrorMetric):
     """
     Track frontend errors.
     """
+    # Increment the error counter in Prometheus
     ERROR_COUNT.labels(
         type=metric.error_type,
         location=f"frontend:{metric.location}"
     ).inc()
+    
+    # Log the error for server-side tracking
+    logging.error(
+        f"Frontend error: {metric.error_type} in {metric.location}: {metric.message}"
+    )
+    
     return {"status": "ok"}
+
 
 @router.post("/user_interaction")
 async def track_user_interaction(metric: UserInteractionMetric):
@@ -103,20 +118,20 @@ async def track_user_interaction(metric: UserInteractionMetric):
         
     return {"status": "ok"}
 
-@router.post("/custom")
-async def track_custom_metric(metric: CustomMetric):
+
+@router.post("/map_builder_action")
+async def track_map_builder_action(metric: MapBuilderActionMetric):
     """
-    Track custom metrics from frontend components.
+    Track MapBuilder-specific actions.
     """
-    try:
-        if metric.metric_name == "component_render_time" and metric.duration_seconds is not None:
-            COMPONENT_RENDER_TIME.labels(component=metric.component).observe(metric.duration_seconds)
-            return {"status": "ok"}
-        
-        # Handle other custom metrics as needed
-        logging.warning(f"Unhandled custom metric: {metric.metric_name}")
-        return {"status": "unknown_metric", "message": f"Metric type {metric.metric_name} not configured"}
+    MAP_BUILDER_ACTION_COUNT.labels(
+        action=metric.action,
+        entity_type=metric.entity_type
+    ).inc(metric.count)
     
-    except Exception as e:
-        logging.error(f"Error processing custom metric {metric.metric_name}: {str(e)}")
-        return {"status": "error", "message": str(e)} 
+    # Log for debugging if needed
+    logging.debug(
+        f"MapBuilder action: {metric.action} on {metric.entity_type} (count: {metric.count})"
+    )
+    
+    return {"status": "ok"} 

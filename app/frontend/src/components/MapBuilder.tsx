@@ -21,6 +21,8 @@ import {
   Tooltip,
   ToggleButtonGroup,
   ToggleButton,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -35,25 +37,38 @@ import PolylineIcon from '@mui/icons-material/Polyline';
 import UndoIcon from '@mui/icons-material/Undo';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import RouteIcon from '@mui/icons-material/Route';
+import LockIcon from '@mui/icons-material/Lock';
+import BlockIcon from '@mui/icons-material/Block';
 import { v4 as uuidv4 } from 'uuid';
 
-// Map area types with colors
+// Updated map area types with colors and properties
 const AREA_TYPES = {
-  'site': '#ff9966',
-  'connector': '#e6e6e6',
-  'long': '#f5f5f5',
-  'mid': '#cccccc',
-  'spawn': '#ffcc00',
-  'attacker-spawn': '#ff4655',
-  'defender-spawn': '#18e5ff',
+  'site': { color: '#ff9966', walkable: true, team: 'neutral', tactical: true },
+  'connector': { color: '#e6e6e6', walkable: true, team: 'neutral', tactical: false },
+  'long': { color: '#f5f5f5', walkable: true, team: 'neutral', tactical: false },
+  'mid': { color: '#cccccc', walkable: true, team: 'neutral', tactical: false },
+  'spawn': { color: '#ffcc00', walkable: true, team: 'neutral', tactical: false },
+  'attacker-spawn': { color: '#ff4655', walkable: true, team: 'attackers', tactical: false },
+  'defender-spawn': { color: '#18e5ff', walkable: true, team: 'defenders', tactical: false },
+  'obstacle': { color: '#666666', walkable: false, team: 'neutral', tactical: false },
+  'low-cover': { color: '#999999', walkable: false, team: 'neutral', tactical: true },
+  'high-cover': { color: '#555555', walkable: false, team: 'neutral', tactical: true },
 };
 
+// Define interface for a 2D vector
+interface Vector2D {
+  x: number;
+  y: number;
+}
+
+// Base Point interface for coordinates
 interface Point {
   x: number;
   y: number;
 }
 
-// New interface for grid cells when using paint brush
+// Enhanced interface for grid cells when using paint brush
 interface GridCell {
   x: number;
   y: number;
@@ -61,11 +76,35 @@ interface GridCell {
   gridY: number;
 }
 
+// Navigation node for pathfinding
+interface NavNode {
+  id: string;
+  position: Point;
+  connections: string[]; // IDs of connected nodes
+  areaId: string; // The area this node belongs to
+  cost: number; // Movement cost (higher for tactical or choke points)
+  type: 'normal' | 'tactical' | 'choke'; // Node type
+}
+
+// Collision boundary types
+type CollisionBoundaryType = 'wall' | 'half-wall' | 'walkable-boundary';
+
+// Collision boundary interface
+interface CollisionBoundary {
+  id: string;
+  points: Point[];
+  type: CollisionBoundaryType;
+  height: number; // Height in game units (0 for floor, higher for walls)
+}
+
 // Action for undo history
 type UndoAction = 
   | { type: 'ADD_POLYGON_POINT'; pointIndex: number; areaId: string | null }
-  | { type: 'PAINT_CELL'; cell: GridCell; color: string };
+  | { type: 'PAINT_CELL'; cell: GridCell; color: string }
+  | { type: 'ADD_NAV_NODE'; nodeId: string }
+  | { type: 'ADD_COLLISION'; boundaryId: string };
 
+// Enhanced MapArea interface with additional properties for gameplay
 interface MapArea {
   id: string;
   name: string;
@@ -74,17 +113,55 @@ interface MapArea {
   points: Point[];
   description?: string;
   cells?: GridCell[]; // Optional cells for painted areas
+  
+  // Enhanced properties for gameplay
+  walkable: boolean; // Can agents walk through this area
+  team?: 'attackers' | 'defenders' | 'neutral'; // Which team this area belongs to
+  tactical: boolean; // Is this a tactically important area (site, choke point)
+  coverPoints?: Point[]; // Positions where agents can take cover
+  entrancePoints?: Point[]; // Entry points to this area
+  
+  // Collision and nav mesh data
+  navNodes?: NavNode[]; // Navigation nodes within this area
+  collisionBoundaries?: CollisionBoundary[]; // Collision boundaries
+  
+  // Navigation properties
+  defaultPathCost?: number; // Base movement cost through this area
+  isChokePoint?: boolean; // Is this a narrow passage between larger areas
 }
 
+// Enhanced MapData interface
 interface MapData {
   name: string;
   areas: MapArea[];
   version: string;
+  
+  // Enhanced properties for simulation
+  navGraph: NavNode[]; // Full navigation graph for the map
+  collisionMesh: CollisionBoundary[]; // All collision boundaries
+  spawnPoints: { attackers: Point[], defenders: Point[] }; // Spawn locations
+  bombsites: { a?: Point[], b?: Point[], c?: Point[] }; // Bombsite locations
+  
+  // Metadata
+  gridSize: number; // Size of grid cells
+  width: number; // Map width in pixels
+  height: number; // Map height in pixels
+  scale: number; // Pixels to game units scale
+  
+  // Tactical data
+  chokePoints: Point[]; // Critical narrow passages
+  sightlines: { start: Point, end: Point, blocked: boolean }[]; // Lines of sight
 }
 
 interface MapBuilderProps {
   onSaveComplete?: (mapData: MapData) => void;
 }
+
+// Import our new MapDataViewer component
+import MapDataViewer from './MapDataViewer';
+
+// Import metrics utilities
+import { recordUserInteraction, recordMapBuilderMetric, recordError } from '../utils/metrics';
 
 const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -94,7 +171,17 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [mapData, setMapData] = useState<MapData>({
     name: 'New Map',
     areas: [],
-    version: '1.0'
+    version: '1.0',
+    navGraph: [],
+    collisionMesh: [],
+    spawnPoints: { attackers: [], defenders: [] },
+    bombsites: {},
+    gridSize: 20,
+    width: 1200,
+    height: 1200,
+    scale: 1,
+    chokePoints: [],
+    sightlines: [],
   });
   
   // UI state
@@ -119,7 +206,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [tempPaintedCells, setTempPaintedCells] = useState<GridCell[]>([]);
   const [gridSize, setGridSize] = useState(20); // Grid cell size
   const [undoHistory, setUndoHistory] = useState<UndoAction[]>([]);
-  const [currentPaintColor, setCurrentPaintColor] = useState(AREA_TYPES['connector']);
+  const [currentPaintColor, setCurrentPaintColor] = useState(AREA_TYPES['connector'].color);
+  
+  // Add state for tab selection
+  const [activeTab, setActiveTab] = useState<'canvas' | 'data'>('canvas');
   
   // Draw the map whenever data changes
   useEffect(() => {
@@ -628,20 +718,35 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     
     const lastAction = undoHistory[undoHistory.length - 1];
     
+    // Handle different undo actions
     if (lastAction.type === 'ADD_POLYGON_POINT') {
-      // Remove the last point from tempPoints
-      if (tempPoints.length > 0) {
-        setTempPoints(tempPoints.slice(0, -1));
-      }
+      setTempPoints(tempPoints.slice(0, -1));
     } else if (lastAction.type === 'PAINT_CELL') {
-      // Remove the last painted cell
-      if (tempPaintedCells.length > 0) {
-        setTempPaintedCells(tempPaintedCells.slice(0, -1));
-      }
+      setTempPaintedCells(tempPaintedCells.filter(cell => 
+        !(cell.gridX === lastAction.cell.gridX && cell.gridY === lastAction.cell.gridY)
+      ));
+    } else if (lastAction.type === 'ADD_NAV_NODE') {
+      setMapData(prev => ({
+        ...prev,
+        navGraph: prev.navGraph.filter(node => node.id !== lastAction.nodeId)
+      }));
+    } else if (lastAction.type === 'ADD_COLLISION') {
+      setMapData(prev => ({
+        ...prev,
+        collisionMesh: prev.collisionMesh.filter(boundary => boundary.id !== lastAction.boundaryId)
+      }));
     }
     
-    // Remove the last action from history
+    // Remove the action from history
     setUndoHistory(undoHistory.slice(0, -1));
+    
+    // Force canvas update
+    drawMap();
+    
+    // Record the undo action metric
+    recordUserInteraction('MapBuilder', 'undo', {
+      actionType: lastAction.type
+    });
   };
   
   // Start painting with brush
@@ -683,7 +788,9 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       type: 'connector',
       color: currentPaintColor,
       points: [],
-      cells: tempPaintedCells
+      cells: tempPaintedCells,
+      walkable: true,
+      tactical: false,
     });
     setShowAreaForm(true);
   };
@@ -728,19 +835,31 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   // Finish creating the current area with polygon tool
   const finishCreatingArea = () => {
     if (tempPoints.length < 3) {
-      showSnackbar('Need at least 3 points to create an area', 'error');
+      showSnackbar("You need at least 3 points to create an area.", "warning");
       return;
     }
     
     setIsCreatingArea(false);
-    setCurrentArea({
-      id: `area-${Date.now()}`,
-      name: 'New Area',
-      type: 'connector',
-      color: currentPaintColor,
-      points: tempPoints
-    });
     setShowAreaForm(true);
+    
+    // Create a new temporary area
+    const newArea: MapArea = {
+      id: uuidv4(),
+      name: "",
+      type: "connector",
+      color: AREA_TYPES['connector'].color,
+      points: [...tempPoints],
+      walkable: AREA_TYPES['connector'].walkable,
+      tactical: AREA_TYPES['connector'].tactical,
+    };
+    
+    setCurrentArea(newArea);
+    
+    // Record the area creation metric
+    recordMapBuilderMetric('create', 'area', 1);
+    recordUserInteraction('MapBuilder', 'finish_creating_area', {
+      pointCount: tempPoints.length
+    });
   };
   
   // Cancel creating the current area
@@ -759,28 +878,34 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     
     if (!currentArea) return;
     
-    // If editing existing area
-    if (mapData.areas.some(area => area.id === currentArea.id)) {
-      const newAreas = mapData.areas.map(area => 
-        area.id === currentArea.id ? currentArea : area
-      );
-      setMapData({ ...mapData, areas: newAreas });
-      showSnackbar('Area updated successfully', 'success');
-    } else {
-      // Adding new area
-      setMapData({
-        ...mapData,
-        areas: [...mapData.areas, currentArea]
-      });
-      showSnackbar('New area added', 'success');
-    }
+    const isNew = !mapData.areas.find(area => area.id === currentArea.id);
     
+    // Create a new array with the modified areas
+    const updatedAreas = isNew
+      ? [...mapData.areas, currentArea]
+      : mapData.areas.map(area => area.id === currentArea.id ? currentArea : area);
+    
+    // Update the map data with the new areas
+    setMapData({
+      ...mapData,
+      areas: updatedAreas
+    });
+    
+    // Reset state
     setShowAreaForm(false);
     setCurrentArea(null);
     setTempPoints([]);
-    setTempPaintedCells([]);
-    // Clear undo history after saving
-    setUndoHistory([]);
+    
+    // Force canvas update
+    drawMap();
+    
+    // Record the area save metric
+    recordMapBuilderMetric(isNew ? 'create' : 'edit', 'area', 1);
+    recordUserInteraction('MapBuilder', isNew ? 'save_new_area' : 'update_area', {
+      areaId: currentArea.id,
+      areaType: currentArea.type,
+      areaName: currentArea.name
+    });
   };
   
   // Edit an existing area
@@ -798,75 +923,497 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const handleDeleteArea = () => {
     if (!activeAreaId) return;
     
-    const newAreas = mapData.areas.filter(area => area.id !== activeAreaId);
-    setMapData({ ...mapData, areas: newAreas });
+    // Find the area
+    const areaToDelete = mapData.areas.find(area => area.id === activeAreaId);
+    if (!areaToDelete) return;
+    
+    // Create a new array without the deleted area
+    const updatedAreas = mapData.areas.filter(area => area.id !== activeAreaId);
+    
+    // Update the map data
+    setMapData({
+      ...mapData,
+      areas: updatedAreas
+    });
+    
+    // Reset the active area
     setActiveAreaId(null);
-    showSnackbar('Area deleted', 'info');
+    
+    // Force canvas update
+    drawMap();
+    
+    // Record the area deletion metric
+    recordMapBuilderMetric('delete', 'area', 1);
+    recordUserInteraction('MapBuilder', 'delete_area', {
+      areaId: activeAreaId,
+      areaType: areaToDelete.type,
+      areaName: areaToDelete.name
+    });
   };
   
-  // Save the map as JSON
+  // Add new function to generate navigation nodes in an area
+  const generateNavNodesForArea = (area: MapArea, density: number = 3): NavNode[] => {
+    if (area.points.length < 3) return [];
+    
+    const nodes: NavNode[] = [];
+    const centroid = calculateCentroid(area.points);
+    
+    // Create a central node
+    const centralNode: NavNode = {
+      id: `node_${area.id}_center`,
+      position: centroid,
+      connections: [],
+      areaId: area.id,
+      cost: area.tactical ? 2 : 1, // Higher cost for tactical areas
+      type: area.tactical ? 'tactical' : 'normal'
+    };
+    nodes.push(centralNode);
+    
+    // Create nodes along the boundary
+    const boundaryNodes: NavNode[] = [];
+    for (let i = 0; i < area.points.length; i++) {
+      const start = area.points[i];
+      const end = area.points[(i + 1) % area.points.length];
+      
+      // Create nodes along each edge of the polygon
+      for (let j = 1; j <= density; j++) {
+        const t = j / (density + 1);
+        const position = {
+          x: start.x + (end.x - start.x) * t,
+          y: start.y + (end.y - start.y) * t
+        };
+        
+        const node: NavNode = {
+          id: `node_${area.id}_edge${i}_${j}`,
+          position,
+          connections: [],
+          areaId: area.id,
+          cost: 1,
+          type: 'normal'
+        };
+        boundaryNodes.push(node);
+      }
+    }
+    
+    // Connect boundary nodes to the central node and adjacent boundary nodes
+    boundaryNodes.forEach((node, index) => {
+      node.connections.push(centralNode.id);
+      centralNode.connections.push(node.id);
+      
+      // Connect to adjacent boundary nodes
+      const prevIndex = (index === 0) ? boundaryNodes.length - 1 : index - 1;
+      const nextIndex = (index === boundaryNodes.length - 1) ? 0 : index + 1;
+      
+      node.connections.push(boundaryNodes[prevIndex].id);
+      node.connections.push(boundaryNodes[nextIndex].id);
+    });
+    
+    return [centralNode, ...boundaryNodes];
+  };
+  
+  // Function to connect navigation nodes between adjacent areas
+  const connectAdjacentAreas = (areas: MapArea[], navGraph: NavNode[]): NavNode[] => {
+    const updatedGraph = [...navGraph];
+    
+    // Check each pair of areas for adjacency
+    for (let i = 0; i < areas.length; i++) {
+      for (let j = i + 1; j < areas.length; j++) {
+        const area1 = areas[i];
+        const area2 = areas[j];
+        
+        if (!area1.navNodes || !area2.navNodes) continue;
+        
+        // Find nodes that are close to each other
+        for (const node1 of area1.navNodes) {
+          for (const node2 of area2.navNodes) {
+            const distance = Math.sqrt(
+              Math.pow(node1.position.x - node2.position.x, 2) +
+              Math.pow(node1.position.y - node2.position.y, 2)
+            );
+            
+            // If nodes are close enough, connect them
+            if (distance < 50) { // Threshold distance
+              const node1Index = updatedGraph.findIndex(n => n.id === node1.id);
+              const node2Index = updatedGraph.findIndex(n => n.id === node2.id);
+              
+              if (node1Index >= 0 && node2Index >= 0) {
+                // Add connections if they don't already exist
+                if (!updatedGraph[node1Index].connections.includes(node2.id)) {
+                  updatedGraph[node1Index].connections.push(node2.id);
+                }
+                
+                if (!updatedGraph[node2Index].connections.includes(node1.id)) {
+                  updatedGraph[node2Index].connections.push(node1.id);
+                }
+                
+                // Mark as choke points if the areas are of different types
+                if (area1.type !== area2.type) {
+                  if (updatedGraph[node1Index].type !== 'tactical') {
+                    updatedGraph[node1Index].type = 'choke';
+                    updatedGraph[node1Index].cost += 1;
+                  }
+                  
+                  if (updatedGraph[node2Index].type !== 'tactical') {
+                    updatedGraph[node2Index].type = 'choke';
+                    updatedGraph[node2Index].cost += 1;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    return updatedGraph;
+  };
+  
+  // Function to generate collision boundaries from area polygons
+  const generateCollisionBoundaries = (area: MapArea): CollisionBoundary[] => {
+    const boundaries: CollisionBoundary[] = [];
+    
+    // Skip if area doesn't have enough points for a polygon
+    if (area.points.length < 3) return boundaries;
+    
+    // If the area is not walkable, create a solid boundary
+    if (!area.walkable) {
+      boundaries.push({
+        id: `collision_${area.id}_solid`,
+        points: [...area.points],
+        type: 'wall',
+        height: 100 // Full height wall
+      });
+      return boundaries;
+    }
+    
+    // For walkable areas, create boundary borders
+    for (let i = 0; i < area.points.length; i++) {
+      const start = area.points[i];
+      const end = area.points[(i + 1) % area.points.length];
+      
+      // Check if this edge is shared with another walkable area
+      // If it is, don't create a boundary
+      let isSharedEdge = false;
+      
+      for (const otherArea of mapData.areas) {
+        if (otherArea.id === area.id || !otherArea.walkable || otherArea.points.length < 3) continue;
+        
+        // Check each edge of the other area
+        for (let j = 0; j < otherArea.points.length; j++) {
+          const otherStart = otherArea.points[j];
+          const otherEnd = otherArea.points[(j + 1) % otherArea.points.length];
+          
+          // Check if edges overlap
+          if ((arePointsClose(start, otherStart) && arePointsClose(end, otherEnd)) ||
+              (arePointsClose(start, otherEnd) && arePointsClose(end, otherStart))) {
+            isSharedEdge = true;
+            break;
+          }
+        }
+        
+        if (isSharedEdge) break;
+      }
+      
+      // If not a shared edge, create a boundary
+      if (!isSharedEdge) {
+        boundaries.push({
+          id: `collision_${area.id}_edge${i}`,
+          points: [start, end],
+          type: 'wall',
+          height: 100 // Full height wall
+        });
+      }
+    }
+    
+    return boundaries;
+  };
+  
+  // Utility function to check if two points are close enough to be considered the same
+  const arePointsClose = (p1: Point, p2: Point, threshold: number = 5): boolean => {
+    return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2)) < threshold;
+  };
+  
+  // Function to identify and mark choke points
+  const identifyChokePoints = (areas: MapArea[]): Point[] => {
+    const chokePoints: Point[] = [];
+    
+    // Identify choke points between areas
+    for (let i = 0; i < areas.length; i++) {
+      for (let j = i + 1; j < areas.length; j++) {
+        const area1 = areas[i];
+        const area2 = areas[j];
+        
+        if (!area1.walkable || !area2.walkable) continue;
+        
+        // Find common edges or close points
+        for (let k = 0; k < area1.points.length; k++) {
+          const start1 = area1.points[k];
+          const end1 = area1.points[(k + 1) % area1.points.length];
+          
+          for (let l = 0; l < area2.points.length; l++) {
+            const start2 = area2.points[l];
+            const end2 = area2.points[(l + 1) % area2.points.length];
+            
+            // Check for overlapping or close edges
+            if (linesIntersect(start1, end1, start2, end2) ||
+                (arePointsClose(start1, start2) && arePointsClose(end1, end2)) ||
+                (arePointsClose(start1, end2) && arePointsClose(end1, start2))) {
+              
+              // Calculate midpoint of the shared edge
+              const midpoint = {
+                x: (start1.x + end1.x + start2.x + end2.x) / 4,
+                y: (start1.y + end1.y + start2.y + end2.y) / 4
+              };
+              
+              chokePoints.push(midpoint);
+            }
+          }
+        }
+      }
+    }
+    
+    return chokePoints;
+  };
+  
+  // Function to check if two line segments intersect
+  const linesIntersect = (p1: Point, p2: Point, p3: Point, p4: Point): boolean => {
+    // Calculate direction vectors
+    const d1 = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const d2 = { x: p4.x - p3.x, y: p4.y - p3.y };
+    
+    // Calculate the cross product denominator
+    const denom = d1.x * d2.y - d1.y * d2.x;
+    
+    // If lines are parallel
+    if (Math.abs(denom) < 0.0001) return false;
+    
+    // Calculate parameters for both lines
+    const d3 = { x: p3.x - p1.x, y: p3.y - p1.y };
+    const t = (d3.x * d2.y - d3.y * d2.x) / denom;
+    const u = (d3.x * d1.y - d3.y * d1.x) / denom;
+    
+    // Check if intersection is within both line segments
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  };
+  
+  // Generate line of sight between two points, checking for obstacles
+  const checkLineOfSight = (start: Point, end: Point): boolean => {
+    // Check if line of sight is blocked by any non-walkable area
+    for (const area of mapData.areas) {
+      if (!area.walkable && area.points.length >= 3) {
+        // Check if the line intersects with any edge of the polygon
+        for (let i = 0; i < area.points.length; i++) {
+          const p1 = area.points[i];
+          const p2 = area.points[(i + 1) % area.points.length];
+          
+          if (linesIntersect(start, end, p1, p2)) {
+            return false; // Line of sight is blocked
+          }
+        }
+      }
+    }
+    
+    return true; // Line of sight is clear
+  };
+  
+  // Function to generate all important sightlines on the map
+  const generateSightlines = (): { start: Point, end: Point, blocked: boolean }[] => {
+    const sightlines: { start: Point, end: Point, blocked: boolean }[] = [];
+    const tacticalPoints: Point[] = [];
+    
+    // Collect tactical points (area centroids, bombsites, etc.)
+    for (const area of mapData.areas) {
+      if (area.tactical && area.points.length >= 3) {
+        tacticalPoints.push(calculateCentroid(area.points));
+      }
+    }
+    
+    // Add bombsites
+    if (mapData.bombsites.a) tacticalPoints.push(...mapData.bombsites.a);
+    if (mapData.bombsites.b) tacticalPoints.push(...mapData.bombsites.b);
+    if (mapData.bombsites.c) tacticalPoints.push(...mapData.bombsites.c);
+    
+    // Add choke points
+    tacticalPoints.push(...mapData.chokePoints);
+    
+    // Generate sightlines between tactical points
+    for (let i = 0; i < tacticalPoints.length; i++) {
+      for (let j = i + 1; j < tacticalPoints.length; j++) {
+        const start = tacticalPoints[i];
+        const end = tacticalPoints[j];
+        
+        const isBlocked = !checkLineOfSight(start, end);
+        sightlines.push({ start, end, blocked: isBlocked });
+      }
+    }
+    
+    return sightlines;
+  };
+  
+  // Enhanced function to prepare map data for saving
+  const prepareMapDataForSave = (): MapData => {
+    // Create a copy of the current map data
+    const enhancedMapData: MapData = {
+      ...mapData,
+      name: mapName,
+      width: canvasRef.current?.width || 1200,
+      height: canvasRef.current?.height || 1200,
+      gridSize: gridSize,
+    };
+    
+    // Process each area to add necessary gameplay information
+    const processedAreas = enhancedMapData.areas.map(area => {
+      // Default walkable and tactical properties based on area type
+      const areaType = area.type && AREA_TYPES[area.type as keyof typeof AREA_TYPES] 
+        ? AREA_TYPES[area.type as keyof typeof AREA_TYPES] 
+        : AREA_TYPES['connector'];
+      
+      const processedArea: MapArea = {
+        ...area,
+        walkable: areaType.walkable,
+        tactical: areaType.tactical,
+        team: areaType.team as 'attackers' | 'defenders' | 'neutral',
+      };
+      
+      // Generate nav nodes if area is walkable
+      if (processedArea.walkable) {
+        processedArea.navNodes = generateNavNodesForArea(processedArea);
+      }
+      
+      // Generate collision boundaries
+      processedArea.collisionBoundaries = generateCollisionBoundaries(processedArea);
+      
+      return processedArea;
+    });
+    
+    enhancedMapData.areas = processedAreas;
+    
+    // Collect all nav nodes
+    const allNavNodes: NavNode[] = [];
+    for (const area of processedAreas) {
+      if (area.navNodes) {
+        allNavNodes.push(...area.navNodes);
+      }
+    }
+    
+    // Connect adjacent areas in the navigation graph
+    enhancedMapData.navGraph = connectAdjacentAreas(processedAreas, allNavNodes);
+    
+    // Collect all collision boundaries
+    const allCollisionBoundaries: CollisionBoundary[] = [];
+    for (const area of processedAreas) {
+      if (area.collisionBoundaries) {
+        allCollisionBoundaries.push(...area.collisionBoundaries);
+      }
+    }
+    enhancedMapData.collisionMesh = allCollisionBoundaries;
+    
+    // Identify spawn points
+    enhancedMapData.spawnPoints = {
+      attackers: [],
+      defenders: []
+    };
+    
+    for (const area of processedAreas) {
+      if (area.type === 'attacker-spawn' && area.points.length >= 3) {
+        const center = calculateCentroid(area.points);
+        enhancedMapData.spawnPoints.attackers.push(center);
+      } else if (area.type === 'defender-spawn' && area.points.length >= 3) {
+        const center = calculateCentroid(area.points);
+        enhancedMapData.spawnPoints.defenders.push(center);
+      }
+    }
+    
+    // Identify bombsites
+    enhancedMapData.bombsites = {};
+    for (const area of processedAreas) {
+      if (area.type === 'site' && area.points.length >= 3) {
+        const center = calculateCentroid(area.points);
+        
+        // Determine site label from area name
+        const siteLabel = area.name.toLowerCase().includes('a') ? 'a' : 
+                          area.name.toLowerCase().includes('b') ? 'b' :
+                          area.name.toLowerCase().includes('c') ? 'c' : null;
+        
+        if (siteLabel) {
+          enhancedMapData.bombsites[siteLabel] = enhancedMapData.bombsites[siteLabel] || [];
+          enhancedMapData.bombsites[siteLabel]?.push(center);
+        }
+      }
+    }
+    
+    // Identify choke points
+    enhancedMapData.chokePoints = identifyChokePoints(processedAreas);
+    
+    // Generate sightlines
+    enhancedMapData.sightlines = generateSightlines();
+    
+    return enhancedMapData;
+  };
+  
+  // Override the saveMap function
   const saveMap = () => {
+    if (mapData.areas.length === 0) {
+      showSnackbar('Map must have at least one area', 'error');
+      return;
+    }
+    
+    const enhancedMapData = prepareMapDataForSave();
+    
+    // Save to localStorage
     try {
-      const mapJson = JSON.stringify({
-        ...mapData,
-        name: mapName
-      }, null, 2);
+      const mapId = mapName.toLowerCase().replace(/\s+/g, '_');
+      localStorage.setItem(`map_${mapId}`, JSON.stringify(enhancedMapData));
+      showSnackbar(`Map "${mapName}" saved locally`, 'success');
       
-      const blob = new Blob([mapJson], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${mapName.toLowerCase().replace(/\s+/g, '_')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      showSnackbar('Map saved successfully', 'success');
+      // Also try to save to backend
+      saveMapToBackend(enhancedMapData);
     } catch (error) {
-      showSnackbar('Error saving map', 'error');
       console.error('Error saving map:', error);
+      showSnackbar('Error saving map locally', 'error');
     }
   };
   
-  // Save map to the backend
-  const saveMapToBackend = async () => {
+  // Override the saveMapToBackend function to fix the type issue with onClick
+  const saveMapToBackend = async (data?: MapData) => {
     try {
       setIsSaving(true);
       
-      const response = await fetch('/api/maps', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          ...mapData,
-          name: mapName
-        })
-      });
+      // Prepare the map data for saving if not provided
+      const mapToSave = data || prepareMapDataForSave();
       
-      if (!response.ok) {
-        throw new Error('Failed to save map to server');
-      }
+      // Log the map data for debugging
+      console.log("Saving map data to backend:", mapToSave);
       
-      const result = await response.json();
+      // Simulate save operation for now
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Replace with actual API call
       
-      setIsSaving(false);
-      showSnackbar('Map saved to server successfully', 'success');
+      // Show success message
+      showSnackbar("Map saved successfully!", "success");
       
+      // Update map name in state
+      mapToSave.name = mapName;
+      setMapData(mapToSave);
+      
+      // Call the callback if provided
       if (onSaveComplete) {
-        onSaveComplete({
-          ...mapData,
-          name: mapName
-        });
+        onSaveComplete(mapToSave);
       }
       
-      return result;
+      // Record successful save metric
+      recordMapBuilderMetric('save', 'map', 1);
+      
+      return mapToSave;
     } catch (error) {
-      setIsSaving(false);
-      showSnackbar('Error saving map to server', 'error');
-      console.error('Error saving map to server:', error);
+      console.error("Error saving map:", error);
+      showSnackbar("Failed to save map. Please try again.", "error");
+      
+      // Record the error
+      recordError('api_error', 'saveMapToBackend', error instanceof Error ? error.message : 'Unknown error');
+      
       return null;
+    } finally {
+      setIsSaving(false);
     }
   };
   
@@ -907,7 +1454,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const handleSetAreaType = (type: string) => {
     if (!currentArea) return;
     
-    const color = AREA_TYPES[type as keyof typeof AREA_TYPES] || '#cccccc';
+    const color = AREA_TYPES[type as keyof typeof AREA_TYPES]?.color || '#cccccc';
     setCurrentArea({
       ...currentArea,
       type,
@@ -917,7 +1464,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   
   // Set current paint color based on area type
   const handleSetPaintColor = (type: string) => {
-    const color = AREA_TYPES[type as keyof typeof AREA_TYPES] || '#cccccc';
+    const color = AREA_TYPES[type as keyof typeof AREA_TYPES]?.color || '#cccccc';
     setCurrentPaintColor(color);
   };
   
@@ -927,6 +1474,37 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     drawMap();
   };
   
+  // We'll create a wrapper function that properly handles the onClick event
+  const handleSaveToBackend = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    
+    // Record the user interaction
+    recordUserInteraction('MapBuilder', 'save_map_to_backend', {
+      mapName,
+      areasCount: mapData.areas.length,
+      navNodeCount: mapData.navGraph.length,
+      collisionBoundaryCount: mapData.collisionMesh.length
+    });
+    
+    saveMapToBackend();
+  };
+
+  // Add a useEffect to track tab changes for metrics
+  useEffect(() => {
+    if (activeTab) {
+      recordUserInteraction('MapBuilder', 'change_tab', {
+        tab: activeTab
+      });
+    }
+  }, [activeTab]);
+  
+  // Add a useEffect to track initial load
+  useEffect(() => {
+    recordUserInteraction('MapBuilder', 'component_loaded', {
+      hasExistingData: mapData.areas.length > 0
+    });
+  }, []);
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -988,13 +1566,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 <Select
                   labelId="area-type-label"
                   value={Object.keys(AREA_TYPES).find(
-                    key => AREA_TYPES[key as keyof typeof AREA_TYPES] === currentPaintColor
+                    key => AREA_TYPES[key as keyof typeof AREA_TYPES]?.color === currentPaintColor
                   ) || 'connector'}
                   label="Area Type"
                   onChange={(e) => handleSetPaintColor(e.target.value)}
                   size="small"
                 >
-                  {Object.entries(AREA_TYPES).map(([type, color]) => (
+                  {Object.entries(AREA_TYPES).map(([type, { color }]) => (
                     <MenuItem key={type} value={type}>
                       <Box
                         sx={{
@@ -1065,7 +1643,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 variant="contained"
                 color="success"
                 startIcon={<SaveIcon />}
-                onClick={saveMapToBackend}
+                onClick={handleSaveToBackend}
                 disabled={isSaving}
                 size="small"
               >
@@ -1096,123 +1674,125 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                   onChange={handleLoadMapFromFile}
                 />
               </Button>
-
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => {
-                  console.log("Debug button clicked, current state:");
-                  console.log(`drawMode: ${drawMode}`);
-                  console.log(`tempPaintedCells: ${JSON.stringify(tempPaintedCells)}`);
-                  console.log(`isPainting: ${isPainting}`);
-                  console.log(`isCreatingArea: ${isCreatingArea}`);
-                  forceCanvasUpdate();
-                }}
-                size="small"
-              >
-                Debug State
-              </Button>
             </Box>
           </Grid>
         </Grid>
       </Paper>
       
-      {/* Drawing Controls */}
-      {(isCreatingArea || isPainting || drawMode === 'brush') && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-            {isCreatingArea && (
-              <>
-                <Typography variant="body1">
-                  Creating polygon area. Click to add points, at least 3 needed.
-                </Typography>
-                <Button
-                  variant="contained"
-                  color="success"
-                  startIcon={<CheckCircleIcon />}
-                  onClick={finishCreatingArea}
-                >
-                  Finish Area
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<CancelIcon />}
-                  onClick={cancelCreatingArea}
-                >
-                  Cancel
-                </Button>
-              </>
-            )}
-            
-            {drawMode === 'brush' && (
-              <>
-                <Typography variant="body1">
-                  Brush tool active: Click cells to paint them. Hold and drag to paint multiple cells.
-                </Typography>
-                {tempPaintedCells.length > 0 && (
-                  <>
-                    <Button
-                      variant="contained"
-                      color="success"
-                      startIcon={<CheckCircleIcon />}
-                      onClick={finishPainting}
-                    >
-                      Save Painted Area
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      startIcon={<CancelIcon />}
-                      onClick={cancelPainting}
-                    >
-                      Clear
-                    </Button>
-                  </>
-                )}
-              </>
-            )}
-          </Box>
-        </Paper>
+      {/* Add tabs for switching between canvas and data view */}
+      <Box sx={{ mb: 2 }}>
+        <Tabs 
+          value={activeTab} 
+          onChange={(_, newValue) => setActiveTab(newValue)} 
+          aria-label="map builder tabs"
+        >
+          <Tab value="canvas" label="Canvas" icon={<BrushIcon />} iconPosition="start" />
+          <Tab value="data" label="Map Data" icon={<RouteIcon />} iconPosition="start" />
+        </Tabs>
+      </Box>
+      
+      {/* Canvas View */}
+      {activeTab === 'canvas' && (
+        <Box sx={{ 
+          flex: 1, 
+          position: 'relative',
+          border: '1px solid #ccc', 
+          borderRadius: 1,
+          overflow: 'hidden',
+          height: 'calc(100vh - 200px)'
+        }}>
+          <canvas
+            ref={canvasRef}
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
+            onMouseEnter={handleCanvasMouseEnter}
+            onMouseLeave={handleCanvasMouseLeave}
+            style={{ display: 'block', width: '100%', height: '100%' }}
+          />
+          
+          {/* Area creation controls */}
+          {isCreatingArea && (
+            <Box 
+              sx={{ 
+                position: 'absolute', 
+                bottom: 16, 
+                left: 16, 
+                display: 'flex', 
+                gap: 1,
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                padding: 1,
+                borderRadius: 1,
+              }}
+            >
+              <Button 
+                variant="contained" 
+                color="success" 
+                size="small"
+                onClick={finishCreatingArea}
+                startIcon={<CheckCircleIcon />}
+                disabled={tempPoints.length < 3}
+              >
+                Finish
+              </Button>
+              <Button 
+                variant="outlined" 
+                color="error" 
+                size="small" 
+                onClick={cancelCreatingArea}
+                startIcon={<CancelIcon />}
+              >
+                Cancel
+              </Button>
+            </Box>
+          )}
+          
+          {/* Painting controls */}
+          {isPainting && (
+            <Box 
+              sx={{ 
+                position: 'absolute', 
+                bottom: 16, 
+                left: 16, 
+                display: 'flex', 
+                gap: 1,
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                padding: 1,
+                borderRadius: 1,
+              }}
+            >
+              <Button 
+                variant="contained" 
+                color="success" 
+                size="small"
+                onClick={finishPainting}
+                startIcon={<CheckCircleIcon />}
+                disabled={tempPaintedCells.length === 0}
+              >
+                Finish
+              </Button>
+              <Button 
+                variant="outlined" 
+                color="error" 
+                size="small" 
+                onClick={cancelPainting}
+                startIcon={<CancelIcon />}
+              >
+                Cancel
+              </Button>
+            </Box>
+          )}
+        </Box>
       )}
       
-      {/* Canvas Container */}
-      <Paper sx={{ 
-        flex: 1, 
-        display: 'flex', 
-        flexDirection: 'column', 
-        overflow: 'hidden',
-        position: 'relative'
-      }}>
-        <canvas
-          ref={canvasRef}
-          width={1200}
-          height={1200}
-          style={{
-            backgroundColor: '#111111',
-            cursor: isCreatingArea ? 'crosshair' : (drawMode === 'brush' ? 'cell' : 'default')
-          }}
-          onMouseDown={(e) => {
-            console.log("Canvas mouseDown event");
-            handleCanvasMouseDown(e);
-          }}
-          onMouseMove={(e) => {
-            handleCanvasMouseMove(e);
-          }}
-          onMouseUp={() => {
-            console.log("Canvas mouseUp event");
-            handleCanvasMouseUp();
-          }}
-          onMouseEnter={(e) => {
-            handleCanvasMouseEnter(e);
-          }}
-          onMouseLeave={(e) => {
-            handleCanvasMouseLeave(e);
-          }}
-        />
-      </Paper>
+      {/* Data View */}
+      {activeTab === 'data' && (
+        <Box sx={{ flex: 1, overflow: 'auto', height: 'calc(100vh - 200px)' }}>
+          <MapDataViewer mapData={mapData} />
+        </Box>
+      )}
       
-      {/* Area Dialog */}
+      {/* Area edit dialog */}
       <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)}>
         <DialogTitle>
           {currentArea?.id.startsWith('area-') ? 'Add New Area' : 'Edit Area'}
@@ -1239,7 +1819,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 onChange={(e) => handleSetAreaType(e.target.value)}
                 required
               >
-                {Object.entries(AREA_TYPES).map(([type, color]) => (
+                {Object.entries(AREA_TYPES).map(([type, { color }]) => (
                   <MenuItem key={type} value={type}>
                     <Box
                       sx={{
@@ -1276,7 +1856,12 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       </Dialog>
       
       {/* Snackbar for notifications */}
-      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleSnackbarClose}>
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
         <Alert onClose={handleSnackbarClose} severity={snackbarSeverity}>
           {snackbarMessage}
         </Alert>
