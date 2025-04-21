@@ -26,12 +26,17 @@ import LeagueList from './components/LeagueList';
 import LeagueDetail from './components/LeagueDetail';
 import LeagueEdit from './components/LeagueEdit';
 
+// New Franchise components
+import FranchiseHome from './pages/franchise/FranchiseHome';
+import FranchiseDashboard from './components/FranchiseDashboard';
+
 // Define route configuration
 const routes: RouteConfig[] = [
   { path: '/', name: 'Home' },
   { path: '/teams', name: 'Teams' },
   { path: '/matches', name: 'Matches' },
   { path: '/leagues', name: 'Leagues' },
+  { path: '/franchise', name: 'Franchise' },
   { path: '/maps', name: 'Maps' },
   { path: '/test', name: 'Test' },
 ];
@@ -121,6 +126,8 @@ function App() {
               <Route path="/leagues" element={<LeagueList />} />
               <Route path="/leagues/:leagueId" element={<LeagueDetail />} />
               <Route path="/leagues/:leagueId/edit" element={<LeagueEdit />} />
+              <Route path="/franchise" element={<FranchiseHome />} />
+              <Route path="/franchise/dashboard" element={<FranchiseDashboard />} />
               <Route path="/maps" element={<Maps />} />
               <Route path="/maps/builder" element={<MapBuilder />} />
               <Route path="/test" element={<TestPage />} />
