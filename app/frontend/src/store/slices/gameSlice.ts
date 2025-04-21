@@ -71,6 +71,8 @@ export interface MatchResult {
 export interface MatchRequest {
   team_a: string;
   team_b: string;
+  map_name?: string;
+  agent_selections?: Record<string, string>;
 }
 
 interface GameState {
