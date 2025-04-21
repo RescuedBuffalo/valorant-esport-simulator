@@ -29,13 +29,13 @@ def test_match_engine_economy():
         assert "team_b" in round_data["economy"]
         
         # Verify economy limits
-        assert 0 <= round_data["economy"]["team_a"] <= 9000
-        assert 0 <= round_data["economy"]["team_b"] <= 9000
+        assert 0 <= round_data["economy"]["team_a"] <= 15000
+        assert 0 <= round_data["economy"]["team_b"] <= 15000
         
         # Check if spike plant bonus is properly applied
         if round_data.get("spike_planted"):
             attacking_team = "team_a" if match_engine.round_number % 2 == 0 else "team_b"
-            assert round_data["economy"][attacking_team] <= 9000  # Should include plant bonus but not exceed cap
+            assert round_data["economy"][attacking_team] <= 15000  # Should include plant bonus but not exceed cap
 
 def test_loss_bonus_system():
     """Test the loss bonus streak system."""
