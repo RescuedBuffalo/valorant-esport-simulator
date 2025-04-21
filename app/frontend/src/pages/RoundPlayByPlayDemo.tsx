@@ -63,11 +63,11 @@ const RoundPlayByPlayDemo: React.FC = () => {
 
   // Mock team data
   const mockTeams = [
-    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Team Liquid' },
-    { id: '550e8400-e29b-41d4-a716-446655440001', name: 'Sentinels' },
-    { id: '550e8400-e29b-41d4-a716-446655440002', name: 'Cloud9' },
-    { id: '550e8400-e29b-41d4-a716-446655440003', name: 'Fnatic' },
-    { id: '550e8400-e29b-41d4-a716-446655440004', name: 'G2 Esports' },
+    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Team Liquid', logo: '/assets/team-logos/liquid.png' },
+    { id: '550e8400-e29b-41d4-a716-446655440001', name: 'Sentinels', logo: '/assets/team-logos/sentinels.png' },
+    { id: '550e8400-e29b-41d4-a716-446655440002', name: 'Cloud9', logo: '/assets/team-logos/cloud9.png' },
+    { id: '550e8400-e29b-41d4-a716-446655440003', name: 'Fnatic', logo: '/assets/team-logos/fnatic.png' },
+    { id: '550e8400-e29b-41d4-a716-446655440004', name: 'G2 Esports', logo: '/assets/team-logos/g2.png' },
   ];
 
   // Mock map data
@@ -82,16 +82,24 @@ const RoundPlayByPlayDemo: React.FC = () => {
       try {
         // Using ApiService.get to fetch teams
         const fetchedTeams = await ApiService.get<Team[]>('/api/v1/teams');
-        setTeams(fetchedTeams);
-        
-        // Set default teams if available
-        if (fetchedTeams.length >= 2) {
-          setTeamAId(fetchedTeams[0].id);
-          setTeamBId(fetchedTeams[1].id);
+        // Ensure teams is always an array
+        if (Array.isArray(fetchedTeams)) {
+          setTeams(fetchedTeams);
+          
+          // Set default teams if available
+          if (fetchedTeams.length >= 2) {
+            setTeamAId(fetchedTeams[0].id);
+            setTeamBId(fetchedTeams[1].id);
+          }
+        } else {
+          console.error('API returned non-array data for teams:', fetchedTeams);
+          setTeams(mockTeams);
         }
       } catch (err: any) {
         console.error('Error fetching teams:', err);
-        setError('Failed to load teams. Please try again later.');
+        setError('Failed to load teams. Using mock data instead.');
+        // Use mock teams as fallback
+        setTeams(mockTeams);
       } finally {
         setLoading(false);
       }
