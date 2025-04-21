@@ -14,15 +14,6 @@ import {
   IconButton,
   useTheme,
 } from '@mui/material';
-import {
-  Timeline,
-  TimelineItem,
-  TimelineSeparator,
-  TimelineConnector,
-  TimelineContent,
-  TimelineDot,
-  TimelineOppositeContent,
-} from '@mui/lab';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
@@ -405,26 +396,79 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
       <Divider sx={{ mb: 2 }} />
       
       {/* Timeline of round events */}
-      <Timeline position="alternate">
+      <Box sx={{ display: 'flex', flexDirection: 'column', maxWidth: '800px', mx: 'auto', my: 3 }}>
         {displayedEvents.map((event, index) => (
-          <TimelineItem key={index}>
-            <TimelineOppositeContent color="text.secondary">
-              {formatTime(100 - event.timestamp)}
-            </TimelineOppositeContent>
-            <TimelineSeparator>
-              <TimelineDot color={
-                event.type === 'kill' ? 'error' :
-                event.type === 'plant' ? 'warning' :
-                event.type === 'defuse' ? 'success' :
-                event.type === 'ability' ? 'secondary' : 'primary'
-              }>
+          <Box 
+            key={index} 
+            sx={{ 
+              display: 'flex', 
+              flexDirection: index % 2 === 0 ? 'row' : 'row-reverse',
+              mb: 2,
+              position: 'relative'
+            }}
+          >
+            {/* Event time */}
+            <Box sx={{ width: '80px', textAlign: 'center', pt: 1 }}>
+              <Typography color="text.secondary">
+                {formatTime(100 - event.timestamp)}
+              </Typography>
+            </Box>
+            
+            {/* Center line with icon */}
+            <Box sx={{ 
+              width: '60px', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center',
+              position: 'relative'
+            }}>
+              <Box 
+                sx={{ 
+                  height: index === 0 ? '50%' : '100%', 
+                  width: '2px', 
+                  bgcolor: 'divider',
+                  position: 'absolute',
+                  top: index === 0 ? '50%' : 0,
+                  zIndex: 0
+                }} 
+              />
+              {index < displayedEvents.length - 1 && (
+                <Box 
+                  sx={{ 
+                    height: '100%', 
+                    width: '2px', 
+                    bgcolor: 'divider',
+                    position: 'absolute',
+                    bottom: 0,
+                    zIndex: 0
+                  }} 
+                />
+              )}
+              <Box 
+                sx={{ 
+                  width: 40, 
+                  height: 40, 
+                  borderRadius: '50%', 
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  bgcolor: 
+                    event.type === 'kill' ? 'error.main' :
+                    event.type === 'plant' ? 'warning.main' :
+                    event.type === 'defuse' ? 'success.main' :
+                    event.type === 'ability' ? 'secondary.main' : 'primary.main',
+                  color: 'white',
+                  zIndex: 1,
+                  my: 1
+                }}
+              >
                 {getEventIcon(event.type)}
-              </TimelineDot>
-              {index < displayedEvents.length - 1 && <TimelineConnector />}
-            </TimelineSeparator>
-            <TimelineContent>
+              </Box>
+            </Box>
+            
+            {/* Event content */}
+            <Box sx={{ flex: 1, maxWidth: '350px' }}>
               <Card variant="outlined" sx={{ 
-                mb: 1, 
                 borderLeft: 4, 
                 borderColor: getEventColor(event.type) 
               }}>
@@ -447,10 +491,10 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
                   )}
                 </CardContent>
               </Card>
-            </TimelineContent>
-          </TimelineItem>
+            </Box>
+          </Box>
         ))}
-      </Timeline>
+      </Box>
       
       {/* Bottom controls for completing the simulation */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
