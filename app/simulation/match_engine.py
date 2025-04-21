@@ -854,6 +854,7 @@ class MatchEngine:
         from .maps import MapLayout, MapCallout, MapArea
         
         default_map = MapLayout(
+            id="default_map",
             name="Default",
             image_url="/static/maps/default.jpg",
             width=1024,

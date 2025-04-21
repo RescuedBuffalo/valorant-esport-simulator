@@ -124,7 +124,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   
   // Draw background grid
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    ctx.strokeStyle = '#333333';
+    ctx.strokeStyle = '#8c8c8c';
     ctx.lineWidth = 0.5;
     
     const gridSize = 20;
