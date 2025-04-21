@@ -176,13 +176,30 @@ const RoundPlayByPlayDemo: React.FC = () => {
     try {
       console.log(`Simulating round ${roundNumber} between team ${teamAId} and team ${teamBId} on ${mapName}`);
       
-      // Use ApiService.simulateRound instead of simulateRoundWithEvents
-      const result = await ApiService.simulateRound({
-        team_a: teamAId,
-        team_b: teamBId,
-        round_number: roundNumber,
-        map_name: mapName
-      });
+      let result;
+      
+      try {
+        // Try to use the real API
+        result = await ApiService.simulateRound({
+          team_a: teamAId,
+          team_b: teamBId,
+          round_number: roundNumber,
+          map_name: mapName
+        });
+      } catch (apiError) {
+        console.error('API error, using mock data:', apiError);
+        
+        // Fall back to mock data if the API fails
+        result = generateMockSimulationResponse(
+          teamAId, 
+          teamBId, 
+          roundNumber, 
+          mapName,
+          // Find team details from our local state
+          teams.find(t => t.id === teamAId)?.name || 'Team A',
+          teams.find(t => t.id === teamBId)?.name || 'Team B'
+        );
+      }
       
       console.log('Simulation result:', result);
       
@@ -211,6 +228,151 @@ const RoundPlayByPlayDemo: React.FC = () => {
     } finally {
       setSimulating(false);
     }
+  };
+
+  // Generate mock response data for simulation when API is unavailable
+  const generateMockSimulationResponse = (
+    teamAId: string, 
+    teamBId: string, 
+    roundNumber: number, 
+    mapName: string,
+    teamAName: string,
+    teamBName: string
+  ): RoundSimulationResponse => {
+    // Set winner randomly
+    const winner = Math.random() > 0.5 ? 'team_a' : 'team_b';
+    const isAttackingTeamA = roundNumber <= 12;
+
+    // Generate events
+    const events: RoundEvent[] = [
+      {
+        type: 'round_start',
+        description: `Round ${roundNumber} starts. ${isAttackingTeamA ? teamAName : teamBName} on attack.`,
+        timestamp: 0,
+      },
+      {
+        type: 'strategy',
+        description: `${isAttackingTeamA ? teamAName : teamBName} decides to execute a strategy on site A.`,
+        timestamp: 5,
+      }
+    ];
+
+    // Add random events
+    for (let i = 0; i < 5 + Math.floor(Math.random() * 10); i++) {
+      const eventTypes = ['movement', 'ability', 'kill', 'plant', 'defuse'];
+      const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+      const timestamp = 10 + i * 10 + Math.floor(Math.random() * 5);
+      
+      if (eventType === 'kill') {
+        const isTeamAKill = Math.random() > 0.5;
+        events.push({
+          type: 'kill',
+          description: `${isTeamAKill ? 'Player from ' + teamAName : 'Player from ' + teamBName} eliminates an opponent.`,
+          timestamp,
+          player_name: `Player from ${isTeamAKill ? teamAName : teamBName}`,
+          target_name: `Player from ${isTeamAKill ? teamBName : teamAName}`,
+        });
+      } else if (eventType === 'plant' && timestamp > 30) {
+        events.push({
+          type: 'plant',
+          description: `Spike planted by ${isAttackingTeamA ? teamAName : teamBName}.`,
+          timestamp,
+          player_name: `Player from ${isAttackingTeamA ? teamAName : teamBName}`,
+        });
+      } else if (eventType === 'defuse' && timestamp > 60 && events.some(e => e.type === 'plant')) {
+        events.push({
+          type: 'defuse',
+          description: `Spike defused by ${isAttackingTeamA ? teamBName : teamAName}.`,
+          timestamp,
+          player_name: `Player from ${isAttackingTeamA ? teamBName : teamAName}`,
+        });
+      } else {
+        events.push({
+          type: eventType,
+          description: `A ${eventType} action occurred.`,
+          timestamp,
+        });
+      }
+    }
+
+    // Add round end event
+    events.push({
+      type: 'round_end',
+      description: `Round ends. ${winner === 'team_a' ? teamAName : teamBName} wins the round.`,
+      timestamp: 95,
+    });
+
+    // Sort events by timestamp
+    events.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Create a mock player
+    const createMockPlayers = (team: string) => [
+      {
+        id: `player1-${team}`,
+        firstName: 'John',
+        lastName: 'Doe',
+        gamerTag: 'Pro' + team.substring(0, 1).toUpperCase(),
+        agent: team === 'team_a' ? 'Jett' : 'Phoenix',
+      },
+      {
+        id: `player2-${team}`,
+        firstName: 'Jane',
+        lastName: 'Smith',
+        gamerTag: 'Elite' + team.substring(0, 1).toUpperCase(),
+        agent: team === 'team_a' ? 'Sage' : 'Omen',
+      },
+      {
+        id: `player3-${team}`,
+        firstName: 'Bob',
+        lastName: 'Johnson',
+        gamerTag: 'Ace' + team.substring(0, 1).toUpperCase(),
+        agent: team === 'team_a' ? 'Sova' : 'Viper',
+      },
+      {
+        id: `player4-${team}`,
+        firstName: 'Alice',
+        lastName: 'Brown',
+        gamerTag: 'Top' + team.substring(0, 1).toUpperCase(),
+        agent: team === 'team_a' ? 'Reyna' : 'Killjoy',
+      },
+      {
+        id: `player5-${team}`,
+        firstName: 'Charlie',
+        lastName: 'Wilson',
+        gamerTag: 'Beast' + team.substring(0, 1).toUpperCase(),
+        agent: team === 'team_a' ? 'Brimstone' : 'Cypher',
+      },
+    ];
+
+    return {
+      round_data: {
+        round_number: roundNumber,
+        winner: winner,
+        events: events,
+        economy: {
+          team_a: 4000 - Math.floor(Math.random() * 2000),
+          team_b: 4000 - Math.floor(Math.random() * 2000),
+        },
+        loss_streaks: {
+          team_a: winner === 'team_a' ? 0 : 1,
+          team_b: winner === 'team_b' ? 0 : 1,
+        },
+      },
+      team_info: {
+        team_a: {
+          id: teamAId,
+          name: teamAName,
+          logo: '/assets/team-logos/liquid.png',
+          players: createMockPlayers('team_a'),
+        },
+        team_b: {
+          id: teamBId,
+          name: teamBName,
+          logo: '/assets/team-logos/sentinels.png',
+          players: createMockPlayers('team_b'),
+        },
+      },
+    };
   };
 
   if (simResult) {
