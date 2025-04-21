@@ -21,6 +21,7 @@ import TestPage from './pages/TestPage';
 import NotFound from './pages/NotFound';
 import ErrorBoundary from './components/ErrorBoundary';
 import AgentBrowser from './components/AgentBrowser';
+import RoundPlayByPlayDemo from './pages/RoundPlayByPlayDemo';
 
 // New League components
 import LeagueList from './components/LeagueList';
@@ -42,6 +43,7 @@ const routes: RouteConfig[] = [
   { path: '/franchise', name: 'Franchise' },
   { path: '/maps', name: 'Maps' },
   { path: '/agents', name: 'Agents' },
+  { path: '/round-simulation', name: 'Round Simulation' },
   { path: '/test', name: 'Test' },
 ];
 
@@ -136,6 +138,7 @@ function App() {
               <Route path="/maps" element={<Maps />} />
               <Route path="/maps/builder" element={<MapBuilder />} />
               <Route path="/agents" element={<AgentBrowser />} />
+              <Route path="/round-simulation" element={<RoundPlayByPlayDemo />} />
               <Route path="/test" element={<TestPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

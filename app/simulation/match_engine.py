@@ -367,7 +367,7 @@ class MatchEngine:
         
         # Buy weapons for team_a based on round type
         team_a_spend, round_weapons['team_a'], round_armor['team_a'] = self._buy_phase(
-            self.current_match.team_a, 
+            self.current_match.team_a,
             self.economy['team_a'],
             self.loss_streaks['team_a'],
             'team_a'
@@ -375,7 +375,7 @@ class MatchEngine:
         
         # Buy weapons for team_b based on round type
         team_b_spend, round_weapons['team_b'], round_armor['team_b'] = self._buy_phase(
-            self.current_match.team_b, 
+            self.current_match.team_b,
             self.economy['team_b'],
             self.loss_streaks['team_b'],
             'team_b'
@@ -700,7 +700,7 @@ class MatchEngine:
                         )
         
         # Move defending players
-        for player in alive_players[defending_team]:
+        for player in alive_players[defending_side]:
             player_id = player["id"]
             
             # Only move if they have at least one recorded position
@@ -1273,4 +1273,530 @@ class MatchEngine:
                 return role
         
         # Default if agent not found
-        return 'Duelist' 
+        return 'Duelist'
+
+    def _simulate_round_with_events(self) -> Dict[str, Any]:
+        """
+        Simulates a single round with detailed play-by-play events.
+        This is an enhanced version of _simulate_round that generates
+        a sequence of events that can be used for play-by-play commentary.
+        
+        Returns:
+            Dictionary containing round results and events
+        """
+        from random import random, choice, randint
+        import time
+        
+        # Store detailed events for this round
+        round_events = []
+        event_time = 0.0  # Time in seconds
+        
+        # Find the attacker and defender
+        attacking_side = 'team_a' if self.round_number < 12 else 'team_b'
+        defending_side = 'team_b' if attacking_side == 'team_a' else 'team_a'
+        
+        # Get the map for this match
+        map_name = self.current_match.map_name
+        map_layout = map_collection.get(map_name) or self._get_default_map_layout()
+        
+        # Add round start event
+        round_events.append({
+            "event_type": "round_start",
+            "timestamp": event_time,
+            "position": (0.5, 0.5),  # Center of map
+            "player_id": "",
+            "details": {
+                "round_number": self.round_number,
+                "comment": f"Round {self.round_number + 1} begins with {'Team A' if attacking_side == 'team_a' else 'Team B'} attacking."
+            }
+        })
+        event_time += 1.0
+        
+        # Use the standard round simulation for loadouts and economy
+        standard_round = self._simulate_round()
+        
+        # Get player loadouts
+        player_loadouts = standard_round['player_loadouts']
+        
+        # Determine which site will be attacked (A, B, or mid-to-A/B)
+        attack_site = choice(['A', 'B'])
+        if random() < 0.3:  # 30% chance of mid control first
+            attack_path = f"mid-to-{attack_site}"
+        else:
+            attack_path = attack_site
+            
+        # Add attack strategy event
+        round_events.append({
+            "event_type": "strategy",
+            "timestamp": event_time,
+            "position": (0.5, 0.5),
+            "player_id": "",
+            "details": {
+                "team": attacking_side,
+                "strategy": attack_path,
+                "comment": f"{'Team A' if attacking_side == 'team_a' else 'Team B'} decides to attack {attack_path}."
+            }
+        })
+        event_time += randint(2, 4)  # 2-4 seconds later
+        
+        # Initialize alive players
+        alive_players = {
+            'team_a': list(self.current_match.team_a),
+            'team_b': list(self.current_match.team_b)
+        }
+        
+        # Initialize player positions
+        map_data = RoundMapData(map_name=map_name)
+        
+        # Set initial positions for attackers and defenders
+        att_spawn = map_layout.attacker_spawn if hasattr(map_layout, 'attacker_spawn') else (0.2, 0.8)
+        def_spawn = map_layout.defender_spawn if hasattr(map_layout, 'defender_spawn') else (0.8, 0.2)
+        
+        # Initialize player positions
+        for player in alive_players[attacking_side]:
+            player_id = player['id']
+            # Random position near attacker spawn
+            pos_x = att_spawn[0] + random() * 0.1 - 0.05
+            pos_y = att_spawn[1] + random() * 0.1 - 0.05
+            pos = (max(0, min(1, pos_x)), max(0, min(1, pos_y)))
+            
+            map_data.player_positions[player_id] = [
+                PlayerPosition(
+                    player_id=player_id,
+                    position=pos,
+                    rotation=random() * 360,
+                    callout=self._get_callout_at_position(pos, map_layout)
+                )
+            ]
+            
+        for player in alive_players[defending_side]:
+            player_id = player['id']
+            # Random position near defender spawn or sites
+            if random() < 0.6:  # 60% chance to defend a site
+                site_pos = (0.3, 0.3) if attack_site == 'A' else (0.7, 0.3)  # Approximate site positions
+                pos_x = site_pos[0] + random() * 0.15 - 0.075
+                pos_y = site_pos[1] + random() * 0.15 - 0.075
+            else:
+                pos_x = def_spawn[0] + random() * 0.1 - 0.05
+                pos_y = def_spawn[1] + random() * 0.1 - 0.05
+                
+            pos = (max(0, min(1, pos_x)), max(0, min(1, pos_y)))
+            
+            map_data.player_positions[player_id] = [
+                PlayerPosition(
+                    player_id=player_id,
+                    position=pos,
+                    rotation=random() * 360,
+                    callout=self._get_callout_at_position(pos, map_layout)
+                )
+            ]
+        
+        # First movement phase (15-20 seconds)
+        movement_duration = randint(15, 20)
+        for i in range(3):  # 3 movement updates
+            event_time += movement_duration / 3
+            self._simulate_player_movement(map_data, alive_players, attacking_side, defending_side, map_layout, event_time)
+        
+        # Team utility usage and early engagements
+        if random() < 0.8:  # 80% chance for early utility
+            # Utility usage
+            for team_id in [attacking_side, defending_side]:
+                for player in alive_players[team_id]:
+                    player_id = player['id']
+                    agent = self.player_agents.get(player_id, "Unknown")
+                    
+                    # Skip if player already used ability or low utility usage skill
+                    if (player_loadouts[team_id][player_id]["ability_used"] or 
+                        player.get("coreStats", {}).get("utilityUsage", 50) < 40):
+                        continue
+                        
+                    if random() < 0.4:  # 40% chance to use utility early
+                        player_loadouts[team_id][player_id]["ability_used"] = True
+                        current_pos = map_data.player_positions[player_id][-1].position
+                        
+                        # Add ability event
+                        impact = "good"
+                        if random() < 0.1:
+                            impact = "perfect"
+                        elif random() < 0.4:
+                            impact = "great"
+                        elif random() < 0.05:
+                            impact = "bad"
+                            
+                        player_loadouts[team_id][player_id]["ability_impact"] = impact
+                        
+                        ability_comment = f"{agent} ({player.get('gamerTag', 'Player')}) uses an ability"
+                        if impact == "perfect":
+                            ability_comment += " with perfect execution!"
+                        elif impact == "great":
+                            ability_comment += " to great effect."
+                        elif impact == "bad":
+                            ability_comment += " but misuses it."
+                        
+                        round_events.append({
+                            "event_type": "ability",
+                            "timestamp": event_time,
+                            "position": current_pos,
+                            "player_id": player_id,
+                            "details": {
+                                "agent": agent,
+                                "impact": impact,
+                                "comment": ability_comment
+                            }
+                        })
+                        event_time += randint(1, 3)
+        
+        # First blood / early encounters (20-35 seconds into round)
+        early_kill_time = randint(20, 35)
+        event_time = max(event_time, early_kill_time)
+        
+        # Decide if there's a first blood
+        if random() < 0.9:  # 90% chance for first blood
+            # Determine which team gets first blood
+            attacking_gets_first_blood = random() < 0.5
+            first_blood_team = attacking_side if attacking_gets_first_blood else defending_side
+            victim_team = defending_side if attacking_gets_first_blood else attacking_side
+            
+            # Select a killer and victim
+            if alive_players[first_blood_team] and alive_players[victim_team]:
+                killer = choice(alive_players[first_blood_team])
+                victim = choice(alive_players[victim_team])
+                
+                killer_id = killer['id']
+                victim_id = victim['id']
+                
+                # Get positions
+                if killer_id in map_data.player_positions and victim_id in map_data.player_positions:
+                    killer_pos = map_data.player_positions[killer_id][-1].position
+                    victim_pos = map_data.player_positions[victim_id][-1].position
+                    
+                    # Simulate duel
+                    killer_loadout = player_loadouts[first_blood_team][killer_id]
+                    victim_loadout = player_loadouts[victim_team][victim_id]
+                    
+                    # Determine distance for weapon effectiveness
+                    dx = killer_pos[0] - victim_pos[0]
+                    dy = killer_pos[1] - victim_pos[1]
+                    distance = (dx**2 + dy**2)**0.5
+                    
+                    distance_category = "close"
+                    if distance > 0.5:
+                        distance_category = "long"
+                    elif distance > 0.2:
+                        distance_category = "medium"
+                    
+                    # Add kill event
+                    killer_weapon = killer_loadout["weapon"]
+                    round_events.append({
+                        "event_type": "kill",
+                        "timestamp": event_time,
+                        "position": victim_pos,
+                        "player_id": killer_id,
+                        "target_id": victim_id,
+                        "details": {
+                            "weapon": killer_weapon,
+                            "distance": distance_category,
+                            "headshot": random() < 0.4,  # 40% chance for headshot
+                            "comment": f"{killer.get('gamerTag', 'Player')} ({killer_loadout['agent']}) eliminates {victim.get('gamerTag', 'Player')} ({victim_loadout['agent']}) with a {killer_weapon}."
+                        }
+                    })
+                    
+                    # Remove victim from alive players
+                    alive_players[victim_team].remove(victim)
+                    event_time += randint(1, 3)
+        
+        # Mid-round movement and engagements
+        mid_round_duration = randint(15, 25)
+        num_updates = 3
+        for i in range(num_updates):
+            event_time += mid_round_duration / num_updates
+            self._simulate_player_movement(map_data, alive_players, attacking_side, defending_side, map_layout, event_time)
+            
+            # Potential engagement after movement
+            if random() < 0.4:  # 40% chance for engagement after movement
+                # Similar logic to first blood, but another kill
+                if alive_players[attacking_side] and alive_players[defending_side]:
+                    attacker_aggression = 0.5  # Base 50% chance for attacker to win
+                    
+                    # Adjust based on numbers advantage
+                    attacker_numbers_advantage = len(alive_players[attacking_side]) - len(alive_players[defending_side])
+                    attacker_aggression += attacker_numbers_advantage * 0.1
+                    
+                    attacking_wins = random() < attacker_aggression
+                    killer_team = attacking_side if attacking_wins else defending_side
+                    victim_team = defending_side if attacking_wins else attacking_side
+                    
+                    if alive_players[killer_team] and alive_players[victim_team]:
+                        killer = choice(alive_players[killer_team])
+                        victim = choice(alive_players[victim_team])
+                        
+                        killer_id = killer['id']
+                        victim_id = victim['id']
+                        
+                        # Get positions
+                        if killer_id in map_data.player_positions and victim_id in map_data.player_positions:
+                            killer_pos = map_data.player_positions[killer_id][-1].position
+                            victim_pos = map_data.player_positions[victim_id][-1].position
+                            
+                            # Determine distance
+                            dx = killer_pos[0] - victim_pos[0]
+                            dy = killer_pos[1] - victim_pos[1]
+                            distance = (dx**2 + dy**2)**0.5
+                            
+                            distance_category = "close"
+                            if distance > 0.5:
+                                distance_category = "long"
+                            elif distance > 0.2:
+                                distance_category = "medium"
+                            
+                            # Add kill event
+                            killer_loadout = player_loadouts[killer_team][killer_id]
+                            victim_loadout = player_loadouts[victim_team][victim_id]
+                            killer_weapon = killer_loadout["weapon"]
+                            
+                            round_events.append({
+                                "event_type": "kill",
+                                "timestamp": event_time,
+                                "position": victim_pos,
+                                "player_id": killer_id,
+                                "target_id": victim_id,
+                                "details": {
+                                    "weapon": killer_weapon,
+                                    "distance": distance_category,
+                                    "headshot": random() < 0.4,
+                                    "comment": f"{killer.get('gamerTag', 'Player')} ({killer_loadout['agent']}) takes down {victim.get('gamerTag', 'Player')} ({victim_loadout['agent']}) with a {killer_weapon}."
+                                }
+                            })
+                            
+                            # Remove victim from alive players
+                            alive_players[victim_team].remove(victim)
+                            event_time += randint(1, 3)
+        
+        # Spike plant phase (if attackers still alive)
+        spike_planted = False
+        plant_site = None
+        
+        if alive_players[attacking_side]:
+            # Determine if spike will be planted
+            plant_probability = 0.7  # Base 70% chance
+            
+            # Adjust based on numbers advantage
+            attacker_numbers_advantage = len(alive_players[attacking_side]) - len(alive_players[defending_side])
+            plant_probability += attacker_numbers_advantage * 0.1
+            
+            if random() < plant_probability:
+                spike_planted = True
+                plant_site = attack_site
+                planter = choice(alive_players[attacking_side])
+                planter_id = planter['id']
+                
+                # Get planter position
+                if planter_id in map_data.player_positions:
+                    planter_pos = map_data.player_positions[planter_id][-1].position
+                    
+                    # Add spike plant event
+                    round_events.append({
+                        "event_type": "plant",
+                        "timestamp": event_time,
+                        "position": planter_pos,
+                        "player_id": planter_id,
+                        "details": {
+                            "site": plant_site,
+                            "comment": f"{planter.get('gamerTag', 'Player')} plants the spike at site {plant_site}."
+                        }
+                    })
+                    
+                    # Store spike plant position
+                    map_data.spike_plant_position = planter_pos
+                    event_time += randint(4, 7)  # Planting takes a few seconds
+        
+        # Post-plant / late round
+        if spike_planted:
+            # Simulate post-plant (defenders try to retake)
+            retake_duration = randint(20, 35)
+            
+            # Several more potential kills during retake
+            num_retake_engagements = randint(1, 3)
+            for i in range(num_retake_engagements):
+                event_time += retake_duration / num_retake_engagements
+                
+                # Move players
+                self._simulate_player_movement(map_data, alive_players, attacking_side, defending_side, map_layout, event_time)
+                
+                # Potential engagement after movement
+                if alive_players[attacking_side] and alive_players[defending_side]:
+                    # Defenders have slight advantage during retake
+                    defender_advantage = 0.55
+                    
+                    # Adjust based on numbers
+                    defender_numbers_advantage = len(alive_players[defending_side]) - len(alive_players[attacking_side])
+                    defender_advantage += defender_numbers_advantage * 0.1
+                    
+                    defender_wins = random() < defender_advantage
+                    killer_team = defending_side if defender_wins else attacking_side
+                    victim_team = attacking_side if defender_wins else defending_side
+                    
+                    if alive_players[killer_team] and alive_players[victim_team]:
+                        killer = choice(alive_players[killer_team])
+                        victim = choice(alive_players[victim_team])
+                        
+                        killer_id = killer['id']
+                        victim_id = victim['id']
+                        
+                        # Get positions
+                        if killer_id in map_data.player_positions and victim_id in map_data.player_positions:
+                            killer_pos = map_data.player_positions[killer_id][-1].position
+                            victim_pos = map_data.player_positions[victim_id][-1].position
+                            
+                            # Add kill event
+                            killer_loadout = player_loadouts[killer_team][killer_id]
+                            victim_loadout = player_loadouts[victim_team][victim_id]
+                            killer_weapon = killer_loadout["weapon"]
+                            
+                            round_events.append({
+                                "event_type": "kill",
+                                "timestamp": event_time,
+                                "position": victim_pos,
+                                "player_id": killer_id,
+                                "target_id": victim_id,
+                                "details": {
+                                    "weapon": killer_weapon,
+                                    "comment": f"{killer.get('gamerTag', 'Player')} eliminates {victim.get('gamerTag', 'Player')} during the {'retake' if killer_team == defending_side else 'post-plant'}."
+                                }
+                            })
+                            
+                            # Remove victim from alive players
+                            alive_players[victim_team].remove(victim)
+                            event_time += randint(1, 3)
+            
+            # Determine if spike is defused
+            defused = False
+            
+            if alive_players[defending_side]:
+                # Check if defenders have enough time and players to defuse
+                if len(alive_players[defending_side]) > 0 and event_time < 95:  # Need time before spike explosion
+                    defuse_probability = 0.4  # Base 40% chance
+                    
+                    # More likely with numbers advantage
+                    defender_numbers_advantage = len(alive_players[defending_side]) - len(alive_players[attacking_side])
+                    defuse_probability += defender_numbers_advantage * 0.15
+                    
+                    if random() < defuse_probability:
+                        defused = True
+                        defuser = choice(alive_players[defending_side])
+                        defuser_id = defuser['id']
+                        
+                        # Add defuse event
+                        round_events.append({
+                            "event_type": "defuse",
+                            "timestamp": event_time,
+                            "position": map_data.spike_plant_position,
+                            "player_id": defuser_id,
+                            "details": {
+                                "comment": f"{defuser.get('gamerTag', 'Player')} successfully defuses the spike!"
+                            }
+                        })
+                        event_time += 7  # Defuse takes 7 seconds
+            
+            # Round outcome
+            if defused:
+                winner = defending_side
+                round_events.append({
+                    "event_type": "round_end",
+                    "timestamp": event_time,
+                    "position": (0.5, 0.5),
+                    "player_id": "",
+                    "details": {
+                        "winner": defending_side,
+                        "reason": "defused",
+                        "comment": f"{'Team A' if defending_side == 'team_a' else 'Team B'} wins the round by defusing the spike!"
+                    }
+                })
+            elif len(alive_players[defending_side]) == 0:
+                winner = attacking_side
+                round_events.append({
+                    "event_type": "round_end",
+                    "timestamp": event_time,
+                    "position": (0.5, 0.5),
+                    "player_id": "",
+                    "details": {
+                        "winner": attacking_side,
+                        "reason": "eliminated",
+                        "comment": f"{'Team A' if attacking_side == 'team_a' else 'Team B'} wins the round by eliminating all defenders!"
+                    }
+                })
+            else:
+                # Spike detonates
+                winner = attacking_side
+                event_time = 100  # Spike explodes at 100 seconds
+                round_events.append({
+                    "event_type": "detonate",
+                    "timestamp": event_time,
+                    "position": map_data.spike_plant_position,
+                    "player_id": "",
+                    "details": {
+                        "comment": "The spike detonates! Attackers win the round."
+                    }
+                })
+                
+                round_events.append({
+                    "event_type": "round_end",
+                    "timestamp": event_time + 1,
+                    "position": (0.5, 0.5),
+                    "player_id": "",
+                    "details": {
+                        "winner": attacking_side,
+                        "reason": "detonated",
+                        "comment": f"{'Team A' if attacking_side == 'team_a' else 'Team B'} wins as the spike detonates."
+                    }
+                })
+        else:
+            # No spike plant - win by elimination
+            if len(alive_players[attacking_side]) == 0:
+                winner = defending_side
+                round_events.append({
+                    "event_type": "round_end",
+                    "timestamp": event_time,
+                    "position": (0.5, 0.5),
+                    "player_id": "",
+                    "details": {
+                        "winner": defending_side,
+                        "reason": "eliminated",
+                        "comment": f"{'Team A' if defending_side == 'team_a' else 'Team B'} wins by eliminating all attackers!"
+                    }
+                })
+            elif len(alive_players[defending_side]) == 0:
+                winner = attacking_side
+                round_events.append({
+                    "event_type": "round_end",
+                    "timestamp": event_time,
+                    "position": (0.5, 0.5),
+                    "player_id": "",
+                    "details": {
+                        "winner": attacking_side,
+                        "reason": "eliminated",
+                        "comment": f"{'Team A' if attacking_side == 'team_a' else 'Team B'} wins by eliminating all defenders!"
+                    }
+                })
+            else:
+                # Time runs out (defenders win)
+                winner = defending_side
+                event_time = 100  # Round timer expired
+                round_events.append({
+                    "event_type": "round_end",
+                    "timestamp": event_time,
+                    "position": (0.5, 0.5),
+                    "player_id": "",
+                    "details": {
+                        "winner": defending_side,
+                        "reason": "time",
+                        "comment": "Time expires! Defenders win the round."
+                    }
+                })
+        
+        # Combine the standard round data with our detailed events
+        result = standard_round.copy()
+        result['events'] = [event.to_dict() for event in round_events]
+        result['map_data'] = map_data.to_dict()
+        
+        return result 
