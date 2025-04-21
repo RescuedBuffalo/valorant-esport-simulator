@@ -26,27 +26,31 @@ import {
   ButtonGroup,
   DialogContentText,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SaveIcon from '@mui/icons-material/Save';
-import DownloadIcon from '@mui/icons-material/Download';
-import UploadIcon from '@mui/icons-material/Upload';
-import EditIcon from '@mui/icons-material/Edit';
+import {
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  Brush as BrushIcon,
+  Polyline as PolylineIcon,
+  Download as DownloadIcon,
+  Upload as UploadIcon,
+  Undo as UndoIcon,
+  Route as RouteIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  FitScreen as FitScreenIcon,
+  PanTool as PanToolIcon,
+  Settings as SettingsIcon,
+  Brightness4 as DarkModeIcon,
+  Brightness7 as LightModeIcon
+} from '@mui/icons-material';
 import ClearIcon from '@mui/icons-material/Clear';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import BrushIcon from '@mui/icons-material/Brush';
-import PolylineIcon from '@mui/icons-material/Polyline';
-import UndoIcon from '@mui/icons-material/Undo';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
-import RouteIcon from '@mui/icons-material/Route';
 import LockIcon from '@mui/icons-material/Lock';
 import BlockIcon from '@mui/icons-material/Block';
-import ZoomInIcon from '@mui/icons-material/ZoomIn';
-import ZoomOutIcon from '@mui/icons-material/ZoomOut';
-import PanToolIcon from '@mui/icons-material/PanTool';
-import SettingsIcon from '@mui/icons-material/Settings';
-import FitScreenIcon from '@mui/icons-material/FitScreen';
 import { v4 as uuidv4 } from 'uuid';
 // Import our new MapDataViewer component
 import MapDataViewer from './MapDataViewer';
@@ -178,7 +182,9 @@ interface MapBuilderProps {
 }
 
 const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
+  // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const viewportCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Default grid settings
@@ -275,33 +281,42 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   // Draw the map on the canvas
   const drawMap = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const viewportCanvas = viewportCanvasRef.current;
+    
+    if (!canvas || !viewportCanvas) return;
     
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const viewportCtx = viewportCanvas.getContext('2d');
     
-    // Update canvas dimensions if needed
+    if (!ctx || !viewportCtx) return;
+    
+    // Update fixed map canvas dimensions if needed
     if (canvas.width !== mapData.width || canvas.height !== mapData.height) {
       canvas.width = mapData.width;
       canvas.height = mapData.height;
     }
     
-    // Clear canvas with a dark background
-    ctx.fillStyle = '#111111';
+    // The viewport canvas should always match its displayed size
+    const parentElement = viewportCanvas.parentElement;
+    if (parentElement) {
+      const rect = parentElement.getBoundingClientRect();
+      viewportCanvas.width = rect.width;
+      viewportCanvas.height = rect.height;
+    }
+    
+    // Clear both canvases with the current background color
+    ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Apply zoom and pan transformation
-    ctx.save();
-    ctx.translate(pan.x, pan.y);
-    ctx.scale(zoom, zoom);
+    viewportCtx.fillStyle = backgroundColor;
+    viewportCtx.fillRect(0, 0, viewportCanvas.width, viewportCanvas.height);
     
-    // Draw background grid - keeping grid size static even with zoom
-    drawGrid(ctx, canvas.width / zoom, canvas.height / zoom);
+    // ---- Draw on the fixed map canvas first ----
     
-    // Log drawing state
-    console.log(`Drawing map with ${mapData.areas.length} areas, activeAreaId: ${activeAreaId}, tempPaintedCells: ${tempPaintedCells.length}`);
+    // Draw background grid 
+    drawGrid(ctx, canvas.width, canvas.height, false);
     
-    // Draw all areas
+    // Draw all areas on the fixed map canvas
     mapData.areas.forEach(area => {
       const isActive = area.id === activeAreaId;
       
@@ -312,36 +327,74 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       
       // Draw painted areas (cells)
       if (area.cells && area.cells.length > 0) {
-        console.log(`Drawing area ${area.id} with ${area.cells.length} cells, color: ${area.color}`);
         drawPaintedCells(ctx, area.cells, area.color, isActive);
       }
     });
     
-    // Draw area being created
+    // Draw area being created on the fixed map canvas
     if (isCreatingArea && tempPoints.length > 0) {
       drawTempArea(ctx, tempPoints);
     }
     
     // Draw temporary painted cells when using brush
     if (tempPaintedCells.length > 0) {
-      console.log(`Drawing ${tempPaintedCells.length} temporary painted cells with color ${currentPaintColor}`);
       drawPaintedCells(ctx, tempPaintedCells, currentPaintColor, true);
     }
     
-    // Restore the canvas context
-    ctx.restore();
+    // ---- Now draw the viewport with zoom and pan ----
+    
+    // Calculate the position and size of the map in the viewport
+    const viewportCenter = {
+      x: viewportCanvas.width / 2,
+      y: viewportCanvas.height / 2
+    };
+    
+    // Save the viewport context state
+    viewportCtx.save();
+    
+    // Transform the viewport context based on zoom and pan
+    viewportCtx.translate(viewportCenter.x + pan.x, viewportCenter.y + pan.y);
+    viewportCtx.scale(zoom, zoom);
+    viewportCtx.translate(-canvas.width / 2, -canvas.height / 2);
+    
+    // Draw the map canvas onto the viewport canvas
+    viewportCtx.drawImage(canvas, 0, 0);
+    
+    // Draw an extended grid for areas outside the map bounds when zoomed out
+    if (zoom < 1) {
+      const visibleWidth = viewportCanvas.width / zoom;
+      const visibleHeight = viewportCanvas.height / zoom;
+      
+      const extraWidth = visibleWidth - canvas.width;
+      const extraHeight = visibleHeight - canvas.height;
+      
+      if (extraWidth > 0 || extraHeight > 0) {
+        // Extend the grid beyond the map boundaries
+        drawGrid(viewportCtx, 
+                 Math.max(canvas.width + extraWidth, canvas.width * 2), 
+                 Math.max(canvas.height + extraHeight, canvas.height * 2), 
+                 true);
+      }
+    }
+    
+    // Restore the viewport context
+    viewportCtx.restore();
   };
   
-  // Draw background grid with fixed grid size regardless of zoom
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    ctx.strokeStyle = '#8c8c8c';
-    ctx.lineWidth = 0.5 / zoom; // Adjust line width for zoom to keep it thin
+  // Draw background grid
+  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number, isExtendedGrid: boolean = false) => {
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = isExtendedGrid ? 0.5 / zoom : 0.5;
     
-    // Calculate grid boundaries with panning offset
-    const startX = Math.floor(-pan.x / zoom / gridSize) * gridSize;
-    const startY = Math.floor(-pan.y / zoom / gridSize) * gridSize;
-    const endX = startX + width + gridSize * 2;
-    const endY = startY + height + gridSize * 2;
+    // If this is the extended grid, we need to position it differently
+    const offsetX = isExtendedGrid ? -width / 4 : 0;
+    const offsetY = isExtendedGrid ? -height / 4 : 0;
+    
+    // Calculate grid boundaries
+    const startX = Math.floor(offsetX / gridSize) * gridSize;
+    const startY = Math.floor(offsetY / gridSize) * gridSize;
+    const endX = startX + width;
+    const endY = startY + height;
     
     // Draw vertical lines
     for (let x = startX; x <= endX; x += gridSize) {
@@ -359,18 +412,20 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       ctx.stroke();
     }
     
-    // Draw axes at origin for reference with consistent line width even when zoomed
-    ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 1 / zoom;
-    ctx.beginPath();
-    ctx.moveTo(0, startY);
-    ctx.lineTo(0, endY);
-    ctx.stroke();
-    
-    ctx.beginPath();
-    ctx.moveTo(startX, 0);
-    ctx.lineTo(endX, 0);
-    ctx.stroke();
+    // Draw axes at origin for reference
+    if (!isExtendedGrid) {
+      ctx.strokeStyle = axisColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, startY);
+      ctx.lineTo(0, endY);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(startX, 0);
+      ctx.lineTo(endX, 0);
+      ctx.stroke();
+    }
   };
   
   // Draw painted cells
@@ -482,32 +537,30 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     };
   };
   
-  // Get mouse coordinates with zoom and pan adjustments but keeping grid size static
+  // Calculate canvas coordinates from mouse event considering zoom and pan
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | MouseEvent): { x: number, y: number } => {
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+    const viewportCanvas = viewportCanvasRef.current;
     
-    const rect = canvas.getBoundingClientRect();
+    if (!canvas || !viewportCanvas) {
+      return { x: 0, y: 0 };
+    }
     
-    // Calculate the scale factors in case the canvas is being displayed at a different size
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const rect = viewportCanvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
     
-    // Get relative mouse position and apply scaling
-    let x = (e.clientX - rect.left) * scaleX;
-    let y = (e.clientY - rect.top) * scaleY;
+    // Calculate the offset of the map canvas within the viewport
+    const viewportCenter = {
+      x: viewportCanvas.width / 2,
+      y: viewportCanvas.height / 2
+    };
     
-    // Apply boundary checks to ensure coordinates stay within canvas
-    x = Math.max(0, Math.min(x, canvas.width));
-    y = Math.max(0, Math.min(y, canvas.height));
+    // Calculate the position within the map canvas
+    const canvasX = (mouseX - viewportCenter.x - pan.x) / zoom + canvas.width / 2;
+    const canvasY = (mouseY - viewportCenter.y - pan.y) / zoom + canvas.height / 2;
     
-    // Adjust for zoom and pan - for coordinates only, not grid size
-    x = (x - pan.x) / zoom;
-    y = (y - pan.y) / zoom;
-    
-    console.log(`Raw mouse at (${e.clientX}, ${e.clientY}), canvas coordinates: (${x.toFixed(2)}, ${y.toFixed(2)})`);
-    
-    return { x, y };
+    return { x: canvasX, y: canvasY };
   };
   
   // Get cell coordinates with static grid size regardless of zoom level
@@ -1859,6 +1912,25 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     }
   };
 
+  // Background color state
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const backgroundColor = isDarkMode ? '#111111' : '#ffffff';
+  const gridColor = isDarkMode ? '#8c8c8c' : '#cccccc';
+  const axisColor = isDarkMode ? '#ff6b6b' : '#ff3333';
+
+  // Toggle between dark and light mode
+  const toggleDarkMode = () => {
+    setIsDarkMode(prev => !prev);
+    
+    // Record the mode change for metrics
+    recordUserInteraction('MapBuilder', 'toggle_dark_mode', {
+      isDarkMode: !isDarkMode
+    });
+    
+    // Force a redraw
+    drawMap();
+  };
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -1928,6 +2000,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                   </Button>
                 </Tooltip>
               </ButtonGroup>
+              
+              {/* Background Color Toggle */}
+              <Tooltip title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}>
+                <IconButton onClick={toggleDarkMode} size="small" sx={{ mr: 1 }}>
+                  {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
+                </IconButton>
+              </Tooltip>
               
               {/* Grid Settings Button */}
               <Tooltip title="Grid Settings">
@@ -2117,10 +2196,20 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
           border: '1px solid #ccc', 
           borderRadius: 1,
           overflow: 'hidden',
-          height: 'calc(100vh - 200px)'
+          height: 'calc(100vh - 200px)',
+          bgcolor: backgroundColor
         }}>
+          {/* The hidden fixed-size map canvas (not displayed, used for drawing) */}
           <canvas
             ref={canvasRef}
+            style={{ 
+              display: 'none', // Hidden from view
+            }}
+          />
+          
+          {/* The visible viewport canvas (displays content with zoom/pan) */}
+          <canvas
+            ref={viewportCanvasRef}
             onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleCanvasMouseMove}
             onMouseUp={handleCanvasMouseUp}
@@ -2152,19 +2241,17 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
               <Button 
                 variant="contained" 
                 color="success" 
-                size="small"
-                onClick={finishCreatingArea}
                 startIcon={<CheckCircleIcon />}
+                onClick={finishCreatingArea}
                 disabled={tempPoints.length < 3}
               >
-                Finish
+                Finish Area
               </Button>
               <Button 
                 variant="outlined" 
                 color="error" 
-                size="small" 
-                onClick={cancelCreatingArea}
                 startIcon={<CancelIcon />}
+                onClick={cancelCreatingArea}
               >
                 Cancel
               </Button>
@@ -2188,17 +2275,15 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
               <Button 
                 variant="contained" 
                 color="success" 
-                size="small"
                 onClick={finishPainting}
                 startIcon={<CheckCircleIcon />}
                 disabled={tempPaintedCells.length === 0}
               >
-                Finish
+                Finish Painting
               </Button>
               <Button 
                 variant="outlined" 
                 color="error" 
-                size="small" 
                 onClick={cancelPainting}
                 startIcon={<CancelIcon />}
               >
