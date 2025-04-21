@@ -36,7 +36,7 @@ class MatchHistory(Base):
     
     # Relationships
     economy_logs = relationship("EconomyLog", back_populates="match", cascade="all, delete-orphan")
-    player_performances = relationship("MatchPerformance", back_populates="match", cascade="all, delete-orphan")
+    player_performances = relationship("app.models.match_history.MatchPerformanceLog", back_populates="match", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Match {self.team_a_name} {self.team_a_score} - {self.team_b_score} {self.team_b_name}>"
@@ -74,7 +74,7 @@ class EconomyLog(Base):
     def __repr__(self):
         return f"<EconomyLog Round {self.round_number}: {self.team_a_economy_start}->{self.team_a_economy_end} vs {self.team_b_economy_start}->{self.team_b_economy_end}>"
 
-class MatchPerformance(Base):
+class MatchPerformanceLog(Base):
     """Individual player performance in matches."""
     __tablename__ = "match_history_performances_log"
     
