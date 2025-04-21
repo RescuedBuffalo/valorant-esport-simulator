@@ -169,7 +169,7 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
         }
         
         // Call API to simulate round using fetch directly with the proper API URL
-        const response = await fetch(`${config.API_URL}/api/v1/match/simulate-round`, {
+        const response = await fetch(`${config.API_URL}/api/v1/matches/simulate-round`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
