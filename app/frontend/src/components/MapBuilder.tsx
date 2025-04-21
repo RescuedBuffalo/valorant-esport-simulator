@@ -68,16 +68,16 @@ import {
 
 // Updated map area types with colors and properties
 const AREA_TYPES = {
-  'site': { color: '#ff9966', walkable: true, team: 'neutral', tactical: true },
-  'connector': { color: '#82b1ff', walkable: true, team: 'neutral', tactical: false },
-  'long': { color: '#80cbc4', walkable: true, team: 'neutral', tactical: false },
-  'mid': { color: '#ce93d8', walkable: true, team: 'neutral', tactical: false },
-  'spawn': { color: '#ffcc00', walkable: true, team: 'neutral', tactical: false },
-  'attacker-spawn': { color: '#ff4655', walkable: true, team: 'attackers', tactical: false },
-  'defender-spawn': { color: '#18e5ff', walkable: true, team: 'defenders', tactical: false },
-  'obstacle': { color: '#5c6bc0', walkable: false, team: 'neutral', tactical: false },
-  'low-cover': { color: '#8d6e63', walkable: false, team: 'neutral', tactical: true },
-  'high-cover': { color: '#455a64', walkable: false, team: 'neutral', tactical: true },
+  'site': { color: '#ff9966', walkable: true, team: 'neutral', tactical: true, label: 'Site' },
+  'connector': { color: '#82b1ff', walkable: true, team: 'neutral', tactical: false, label: 'Connector' },
+  'long': { color: '#80cbc4', walkable: true, team: 'neutral', tactical: false, label: 'Long' },
+  'mid': { color: '#ce93d8', walkable: true, team: 'neutral', tactical: false, label: 'Mid' },
+  'spawn': { color: '#ffcc00', walkable: true, team: 'neutral', tactical: false, label: 'Spawn' },
+  'attacker-spawn': { color: '#ff4655', walkable: true, team: 'attackers', tactical: false, label: 'Attacker Spawn' },
+  'defender-spawn': { color: '#18e5ff', walkable: true, team: 'defenders', tactical: false, label: 'Defender Spawn' },
+  'obstacle': { color: '#5c6bc0', walkable: false, team: 'neutral', tactical: false, label: 'Obstacle' },
+  'low-cover': { color: '#8d6e63', walkable: false, team: 'neutral', tactical: true, label: 'Low Cover' },
+  'high-cover': { color: '#455a64', walkable: false, team: 'neutral', tactical: true, label: 'High Cover' },
 };
 
 // Define interface for a 2D vector
@@ -270,6 +270,12 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       // Draw the initial grid
       drawMap();
     }
+    
+    // Load saved dark mode preference
+    const savedDarkMode = localStorage.getItem('mapBuilder_darkMode');
+    if (savedDarkMode !== null) {
+      setIsDarkMode(savedDarkMode === 'true');
+    }
   }, []);
   
   // Draw the map whenever relevant state changes
@@ -360,22 +366,8 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     // Draw the map canvas onto the viewport canvas
     viewportCtx.drawImage(canvas, 0, 0);
     
-    // Draw an extended grid for areas outside the map bounds when zoomed out
-    if (zoom < 1) {
-      const visibleWidth = viewportCanvas.width / zoom;
-      const visibleHeight = viewportCanvas.height / zoom;
-      
-      const extraWidth = visibleWidth - canvas.width;
-      const extraHeight = visibleHeight - canvas.height;
-      
-      if (extraWidth > 0 || extraHeight > 0) {
-        // Extend the grid beyond the map boundaries
-        drawGrid(viewportCtx, 
-                 Math.max(canvas.width + extraWidth, canvas.width * 2), 
-                 Math.max(canvas.height + extraHeight, canvas.height * 2), 
-                 true);
-      }
-    }
+    // FIX: Don't draw the extended grid when zoomed out
+    // The extended grid is causing the grid to extend beyond boundaries
     
     // Restore the viewport context
     viewportCtx.restore();
@@ -619,11 +611,11 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     
     console.log(`MouseDown at (${x}, ${y}), drawMode: ${drawMode}`);
     
-    // If we're in paint brush mode
-    if (drawMode === 'brush') {
+    // If we're in paint brush mode and it's a left-click
+    if (drawMode === 'brush' && e.button === 0) {
       console.log("Brush tool is active, processing click");
       
-      // Add the clicked cell
+      // Instead of just setting isPainting to true, immediately paint the clicked cell
       const cell = getCellFromPosition(x, y);
       setLastValidCell(cell); // Update the last valid cell
       
@@ -648,20 +640,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       return;
     }
     
-    // If we're creating a new area with polygon tool
-    if (isCreatingArea) {
-      const newPoint = { x, y };
-      setTempPoints([...tempPoints, newPoint]);
-      
-      // Add to undo history
-      setUndoHistory([...undoHistory, { 
-        type: 'ADD_POLYGON_POINT', 
-        pointIndex: tempPoints.length,
-        areaId: null
-      }]);
-      
-      return;
-    }
+    // If we're creating a new area with polygon tool - REMOVED, no longer needed
     
     // Check if we're clicking on a point of the active area for dragging
     if (activeAreaId) {
@@ -714,64 +693,87 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    setIsMouseOverCanvas(true);
-    
-    // Handle panning
-    if (isPanning && lastMousePos) {
-      const dx = e.clientX - lastMousePos.x;
-      const dy = e.clientY - lastMousePos.y;
-      
-      setPan(prevPan => ({
-        x: prevPan.x + dx,
-        y: prevPan.y + dy
-      }));
-      
+    if (isPanning) {
+      if (lastMousePos) {
+        const dx = e.clientX - lastMousePos.x;
+        const dy = e.clientY - lastMousePos.y;
+        setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      }
       setLastMousePos({ x: e.clientX, y: e.clientY });
       return;
     }
     
     const { x, y } = getCanvasCoordinates(e);
     
-    setLastMousePos({ x: e.clientX, y: e.clientY });
-    
-    // If we're painting with brush (only in drag mode)
-    if (e.buttons === 1 && drawMode === 'brush') {
-      console.log(`MouseMove with button pressed, attempting to paint at (${x}, ${y})`);
-      const cell = getCellFromPosition(x, y);
-      setLastValidCell(cell); // Update the last valid cell
+    // If left mouse button is held down while moving and we're in brush mode
+    if (drawMode === 'brush' && e.buttons === 1) {
+      const currentCell = getCellFromPosition(x, y);
       
-      // Only add cell if it doesn't already exist in tempPaintedCells
-      if (!cellExists(tempPaintedCells, cell)) {
-        console.log(`Adding dragged cell at (${cell.gridX}, ${cell.gridY})`);
-        const updatedCells = [...tempPaintedCells, cell];
-        setTempPaintedCells(updatedCells);
+      // Ensure we're within the canvas bounds
+      if (
+        currentCell.x >= 0 && 
+        currentCell.x < canvas.width && 
+        currentCell.y >= 0 && 
+        currentCell.y < canvas.height
+      ) {
+        // When the mouse moves fast, we need to interpolate between the last valid cell
+        // and the current cell to ensure a continuous painting action
+        if (lastValidCell && 
+            (lastValidCell.gridX !== currentCell.gridX || lastValidCell.gridY !== currentCell.gridY)) {
+          interpolateCells(lastValidCell, currentCell);
+        }
         
-        // Add to undo history
-        setUndoHistory([...undoHistory, { 
-          type: 'PAINT_CELL', 
-          cell,
-          color: currentPaintColor
-        }]);
+        // Only add if not already in tempPaintedCells
+        if (!cellExists(tempPaintedCells, currentCell)) {
+          setTempPaintedCells(prev => [...prev, currentCell]);
+          
+          // Add to undo history
+          setUndoHistory(prev => [...prev, { 
+            type: 'PAINT_CELL', 
+            cell: currentCell,
+            color: currentPaintColor
+          }]);
+        }
+        
+        setLastValidCell(currentCell);
       }
       return;
     }
     
-    // If we're dragging a point
-    if (isDraggingPoint && draggingPointIndex !== null && draggingAreaId) {
-      const newAreas = [...mapData.areas];
-      const areaIndex = newAreas.findIndex(area => area.id === draggingAreaId);
+    setLastMousePos({ x: e.clientX, y: e.clientY });
+  };
+
+  // Handle right-click to remove paint
+  const handleCanvasContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Prevent the default context menu
+    e.preventDefault();
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Only handle right-click in brush mode
+    if (drawMode === 'brush') {
+      const { x, y } = getCanvasCoordinates(e);
+      const cell = getCellFromPosition(x, y);
       
-      if (areaIndex !== -1) {
-        newAreas[areaIndex] = {
-          ...newAreas[areaIndex],
-          points: [
-            ...newAreas[areaIndex].points.slice(0, draggingPointIndex),
-            { x, y },
-            ...newAreas[areaIndex].points.slice(draggingPointIndex + 1)
-          ]
-        };
+      // Check if there's a painted cell at this position
+      const existingCellIndex = tempPaintedCells.findIndex(
+        c => c.gridX === cell.gridX && c.gridY === cell.gridY
+      );
+      
+      if (existingCellIndex !== -1) {
+        // Remove the cell from tempPaintedCells
+        const updatedCells = [...tempPaintedCells];
+        updatedCells.splice(existingCellIndex, 1);
+        setTempPaintedCells(updatedCells);
         
-        setMapData({ ...mapData, areas: newAreas });
+        // Record user interaction for metrics
+        recordUserInteraction('MapBuilder', 'erase_cell', {
+          gridX: cell.gridX,
+          gridY: cell.gridY
+        });
+        
+        console.log(`Removed cell at grid position (${cell.gridX}, ${cell.gridY})`);
       }
     }
   };
@@ -811,7 +813,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     
     // Handle different undo actions
     if (lastAction.type === 'ADD_POLYGON_POINT') {
-      setTempPoints(tempPoints.slice(0, -1));
+        setTempPoints(tempPoints.slice(0, -1));
     } else if (lastAction.type === 'PAINT_CELL') {
       setTempPaintedCells(tempPaintedCells.filter(cell => 
         !(cell.gridX === lastAction.cell.gridX && cell.gridY === lastAction.cell.gridY)
@@ -977,10 +979,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       : mapData.areas.map(area => area.id === currentArea.id ? currentArea : area);
     
     // Update the map data with the new areas
-    setMapData({
-      ...mapData,
+      setMapData({
+        ...mapData,
       areas: updatedAreas
-    });
+      });
     
     // Reset state
     setShowAreaForm(false);
@@ -1386,7 +1388,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const prepareMapDataForSave = async (): Promise<MapData> => {
     // Create a copy of the current map data
     const enhancedMapData: MapData = {
-      ...mapData,
+        ...mapData,
       name: mapName,
       width: canvasRef.current?.width || (tilesX * tileSize),
       height: canvasRef.current?.height || (tilesY * tileSize),
@@ -1920,7 +1922,12 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
 
   // Toggle between dark and light mode
   const toggleDarkMode = () => {
-    setIsDarkMode(prev => !prev);
+    setIsDarkMode(prev => {
+      const newValue = !prev;
+      // Save to localStorage for persistence
+      localStorage.setItem('mapBuilder_darkMode', newValue.toString());
+      return newValue;
+    });
     
     // Record the mode change for metrics
     recordUserInteraction('MapBuilder', 'toggle_dark_mode', {
@@ -1930,115 +1937,156 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     // Force a redraw
     drawMap();
   };
-
+  
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      height: '100%', 
-      width: '100%' 
-    }}>
-      {/* Toolbar */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
-            <TextField
-              fullWidth
-              label="Map Name"
-              value={mapName}
-              onChange={(e) => setMapName(e.target.value)}
-              variant="outlined"
-              size="small"
-            />
-          </Grid>
+    <Paper elevation={3} sx={{ p: 2, mt: 2, mb: 4, height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
+      {/* Header with map name editor */}
+      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <TextField
+          label="Map Name"
+          variant="outlined"
+          size="small"
+          value={mapName}
+          onChange={(e) => setMapName(e.target.value)}
+          sx={{ width: 300 }}
+        />
+      </Box>
+      
+      <Box sx={{ mb: 2 }}>
+        <Tabs 
+          value={activeTab} 
+          onChange={(_, newValue) => setActiveTab(newValue)} 
+          aria-label="map builder tabs"
+        >
+          <Tab value="canvas" label="Canvas" icon={<BrushIcon />} iconPosition="start" />
+          <Tab value="data" label="Map Data" icon={<RouteIcon />} iconPosition="start" />
+        </Tabs>
+      </Box>
+      
+      {/* Canvas View */}
+      {activeTab === 'canvas' && (
+        <Box sx={{ 
+          flex: 1, 
+          position: 'relative',
+          border: '1px solid #ccc', 
+          borderRadius: 1,
+          overflow: 'hidden',
+          height: 'calc(100vh - 200px)',
+          bgcolor: backgroundColor
+        }}>
+          {/* The hidden fixed-size map canvas (not displayed, used for drawing) */}
+          <canvas
+            ref={canvasRef}
+            style={{ 
+              display: 'none', // Hidden from view
+            }}
+          />
           
-          <Grid item xs={12} md={8}>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {/* The visible viewport canvas (displays content with zoom/pan) */}
+          <canvas
+            ref={viewportCanvasRef}
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
+            onMouseEnter={handleCanvasMouseEnter}
+            onMouseLeave={handleCanvasMouseLeave}
+            onContextMenu={handleCanvasContextMenu}
+            style={{ 
+              display: 'block', 
+              width: '100%', 
+              height: '100%',
+              cursor: activeToolMode === 'pan' ? 'grab' : (isDraggingPoint ? 'grabbing' : 
+                      isCreatingArea ? 'crosshair' : (drawMode === 'brush' ? 'cell' : 'default'))
+            }}
+          />
+          
+          {/* Area creation controls */}
+          {isCreatingArea && (
+            <Box 
+              sx={{ 
+                position: 'absolute', 
+                bottom: 16, 
+                left: 16, 
+                display: 'flex', 
+                gap: 1,
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                padding: 1,
+                borderRadius: 1,
+              }}
+            >
+              <Button
+                variant="contained"
+                color="success"
+                onClick={finishCreatingArea}
+                startIcon={<CheckCircleIcon />}
+                disabled={tempPoints.length < 3}
+              >
+                Finish Area
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={cancelCreatingArea}
+                startIcon={<CancelIcon />}
+              >
+                Cancel
+              </Button>
+            </Box>
+          )}
+          
+          {/* Toolbar overlay */}
+          <Box sx={{ 
+            position: 'absolute', 
+            top: 8, 
+            left: 8, 
+            right: 8,
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            padding: 1,
+            borderRadius: 1,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 1
+          }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Tool Mode Selector */}
               <ToggleButtonGroup
                 value={activeToolMode}
                 exclusive
                 size="small"
                 aria-label="tool mode"
-                sx={{ mr: 1 }}
               >
                 <ToggleButton 
                   value="draw" 
                   onClick={() => handleToolModeChange('draw')}
-                  aria-label="draw tool"
+                  aria-label="draw mode"
                 >
-                  <Tooltip title="Drawing Tools">
+                  <Tooltip title="Draw Mode">
                     <BrushIcon />
                   </Tooltip>
                 </ToggleButton>
                 <ToggleButton 
                   value="pan" 
                   onClick={() => handleToolModeChange('pan')}
-                  aria-label="pan tool"
+                  aria-label="pan mode"
                 >
-                  <Tooltip title="Pan Tool">
+                  <Tooltip title="Pan Mode">
                     <PanToolIcon />
                   </Tooltip>
                 </ToggleButton>
               </ToggleButtonGroup>
               
-              {/* Zoom Controls */}
-              <ButtonGroup size="small" aria-label="zoom controls" sx={{ mr: 1 }}>
-                <Tooltip title="Zoom In">
-                  <Button onClick={handleZoomIn}>
-                    <ZoomInIcon />
-                  </Button>
-                </Tooltip>
-                <Tooltip title="Zoom Out">
-                  <Button onClick={handleZoomOut}>
-                    <ZoomOutIcon />
-                  </Button>
-                </Tooltip>
-                <Tooltip title="Reset View">
-                  <Button onClick={handleResetView}>
-                    <FitScreenIcon />
-                  </Button>
-                </Tooltip>
-              </ButtonGroup>
-              
-              {/* Background Color Toggle */}
-              <Tooltip title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}>
-                <IconButton onClick={toggleDarkMode} size="small" sx={{ mr: 1 }}>
-                  {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
-                </IconButton>
-              </Tooltip>
-              
-              {/* Grid Settings Button */}
-              <Tooltip title="Grid Settings">
-                <Button 
-                  variant="outlined" 
-                  size="small" 
-                  onClick={handleGridDialogOpen} 
-                  sx={{ mr: 1 }}
-                >
-                  <SettingsIcon sx={{ mr: 0.5 }} /> Grid ({mapData.width / mapData.gridSize}×{mapData.height / mapData.gridSize})
-                </Button>
-              </Tooltip>
-              
               {/* Only show drawing tools when in draw mode */}
               {activeToolMode === 'draw' && (
                 <>
-                  {/* Drawing Mode Selector */}
+                  {/* Removed Polygon Tool, only keeping Brush */}
                   <ToggleButtonGroup
-                    value={drawMode}
+                    value="brush"
                     exclusive
                     size="small"
                     aria-label="drawing mode"
                   >
-                    <ToggleButton 
-                      value="polygon" 
-                      onClick={startPolygonMode}
-                      aria-label="polygon tool"
-                    >
-                      <Tooltip title="Polygon Tool">
-                        <PolylineIcon />
-                      </Tooltip>
-                    </ToggleButton>
                     <ToggleButton 
                       value="brush" 
                       onClick={() => {
@@ -2056,59 +2104,58 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                   </ToggleButtonGroup>
                   
                   {/* Color Selector */}
-                  <FormControl size="small" sx={{ minWidth: 120, mx: 1 }}>
-                    <InputLabel id="area-type-label">Area Type</InputLabel>
-                    <Select
-                      labelId="area-type-label"
-                      value={Object.keys(AREA_TYPES).find(
-                        key => AREA_TYPES[key as keyof typeof AREA_TYPES]?.color === currentPaintColor
-                      ) || 'connector'}
-                      label="Area Type"
-                      onChange={(e) => handleSetPaintColor(e.target.value)}
-                      size="small"
-                    >
-                      {Object.entries(AREA_TYPES).map(([type, { color }]) => (
-                        <MenuItem key={type} value={type}>
-                          <Box
-                            sx={{
-                              width: 16,
-                              height: 16,
-                              mr: 1,
-                              backgroundColor: color,
-                              display: 'inline-block',
-                              verticalAlign: 'text-bottom',
-                            }}
-                          />
-                          {type}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  
-                  <Button 
-                    variant="contained" 
-                    color="primary" 
-                    startIcon={<AddIcon />}
-                    onClick={startCreatingArea}
-                    disabled={isCreatingArea || isPainting}
+                  <ToggleButtonGroup
+                    value={currentPaintColor}
+                    exclusive
                     size="small"
+                    aria-label="area color"
                   >
-                    Add Area
-                  </Button>
+                    {Object.entries(AREA_TYPES).map(([type, details]) => (
+                      <ToggleButton
+                        key={type}
+                        value={details.color}
+                        onClick={() => setCurrentPaintColor(details.color)}
+                        aria-label={`${details.label} color`}
+                        sx={{ 
+                          backgroundColor: details.color + '99', 
+                          '&.Mui-selected': { backgroundColor: details.color + 'CC' },
+                          '&:hover': { backgroundColor: details.color + 'AA' }
+                        }}
+                      >
+                        <Tooltip title={details.label}>
+                          <Box sx={{ width: 20, height: 20 }} />
+                        </Tooltip>
+                      </ToggleButton>
+                    ))}
+                  </ToggleButtonGroup>
                   
+                  {/* Create/Add Area Button */}
+                  <Tooltip title="Start painting new area">
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="primary"
+                      startIcon={<BrushIcon />}
+                      onClick={startPaintingMode}
+                      disabled={drawMode === 'brush' && tempPaintedCells.length === 0}
+                    >
+                      Paint Area
+                    </Button>
+                  </Tooltip>
+                  
+                  {/* Undo Button */}
                   <Tooltip title="Undo Last Action">
                     <span>
                       <IconButton 
-                        onClick={handleUndo} 
+                        size="small" 
+                        onClick={handleUndo}
                         disabled={undoHistory.length === 0}
-                        size="small"
+                        color="primary"
                       >
                         <UndoIcon />
                       </IconButton>
                     </span>
                   </Tooltip>
-                  
-                  <Divider orientation="vertical" flexItem />
                   
                   {activeAreaId && (
                     <>
@@ -2172,93 +2219,47 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 />
               </Button>
             </Box>
-          </Grid>
-        </Grid>
-      </Paper>
-      
-      {/* Add tabs for switching between canvas and data view */}
-      <Box sx={{ mb: 2 }}>
-        <Tabs 
-          value={activeTab} 
-          onChange={(_, newValue) => setActiveTab(newValue)} 
-          aria-label="map builder tabs"
-        >
-          <Tab value="canvas" label="Canvas" icon={<BrushIcon />} iconPosition="start" />
-          <Tab value="data" label="Map Data" icon={<RouteIcon />} iconPosition="start" />
-        </Tabs>
-      </Box>
-      
-      {/* Canvas View */}
-      {activeTab === 'canvas' && (
-        <Box sx={{ 
-          flex: 1, 
-          position: 'relative',
-          border: '1px solid #ccc', 
-          borderRadius: 1,
-          overflow: 'hidden',
-          height: 'calc(100vh - 200px)',
-          bgcolor: backgroundColor
-        }}>
-          {/* The hidden fixed-size map canvas (not displayed, used for drawing) */}
-          <canvas
-            ref={canvasRef}
-            style={{ 
-              display: 'none', // Hidden from view
-            }}
-          />
-          
-          {/* The visible viewport canvas (displays content with zoom/pan) */}
-          <canvas
-            ref={viewportCanvasRef}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseEnter={handleCanvasMouseEnter}
-            onMouseLeave={handleCanvasMouseLeave}
-            style={{ 
-              display: 'block', 
-              width: '100%', 
-              height: '100%',
-              cursor: activeToolMode === 'pan' ? 'grab' : (isDraggingPoint ? 'grabbing' : 
-                      isCreatingArea ? 'crosshair' : (drawMode === 'brush' ? 'cell' : 'default'))
-            }}
-          />
-          
-          {/* Area creation controls */}
-          {isCreatingArea && (
-            <Box 
-              sx={{ 
-                position: 'absolute', 
-                bottom: 16, 
-                left: 16, 
-                display: 'flex', 
-                gap: 1,
-                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                padding: 1,
-                borderRadius: 1,
-              }}
-            >
-              <Button 
-                variant="contained" 
-                color="success" 
-                startIcon={<CheckCircleIcon />}
-                onClick={finishCreatingArea}
-                disabled={tempPoints.length < 3}
-              >
-                Finish Area
-              </Button>
-              <Button 
-                variant="outlined" 
-                color="error" 
-                startIcon={<CancelIcon />}
-                onClick={cancelCreatingArea}
-              >
-                Cancel
-              </Button>
+            
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <ButtonGroup size="small" aria-label="zoom controls" sx={{ mr: 1 }}>
+                <Tooltip title="Zoom In">
+                  <Button onClick={handleZoomIn}>
+                    <ZoomInIcon />
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Zoom Out">
+                  <Button onClick={handleZoomOut}>
+                    <ZoomOutIcon />
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Reset View">
+                  <Button onClick={handleResetView}>
+                    <FitScreenIcon />
+                  </Button>
+                </Tooltip>
+              </ButtonGroup>
+              
+              {/* Background Color Toggle */}
+              <Tooltip title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}>
+                <IconButton onClick={toggleDarkMode} size="small" sx={{ mr: 1 }}>
+                  {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
+                </IconButton>
+              </Tooltip>
+              
+              {/* Grid Settings Button */}
+              <Tooltip title="Grid Settings">
+                <Button 
+                  variant="outlined" 
+                  size="small" 
+                  onClick={handleGridDialogOpen} 
+                  sx={{ mr: 1 }}
+                >
+                  <SettingsIcon sx={{ mr: 0.5 }} /> Grid ({mapData.width / mapData.gridSize}×{mapData.height / mapData.gridSize})
+                </Button>
+              </Tooltip>
             </Box>
-          )}
+          </Box>
           
-          {/* Painting controls */}
           {isPainting && (
             <Box 
               sx={{ 
@@ -2272,18 +2273,18 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                 borderRadius: 1,
               }}
             >
-              <Button 
-                variant="contained" 
-                color="success" 
+              <Button
+                variant="contained"
+                color="success"
                 onClick={finishPainting}
                 startIcon={<CheckCircleIcon />}
                 disabled={tempPaintedCells.length === 0}
               >
                 Finish Painting
               </Button>
-              <Button 
-                variant="outlined" 
-                color="error" 
+              <Button
+                variant="outlined"
+                color="error"
                 onClick={cancelPainting}
                 startIcon={<CancelIcon />}
               >
@@ -2304,7 +2305,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
               py: 0.5,
               borderRadius: 1,
               fontSize: '0.8rem',
-              display: 'flex',
+              display: 'flex', 
               alignItems: 'center',
               gap: 0.5
             }}
@@ -2326,80 +2327,156 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       {renderGridSettingsDialog()}
       
       {/* Area edit dialog */}
-      <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)}>
-        <DialogTitle>
-          {currentArea?.id.startsWith('area-') ? 'Add New Area' : 'Edit Area'}
-        </DialogTitle>
-        <form onSubmit={handleSaveArea}>
-          <DialogContent>
-            <TextField
-              autoFocus
-              margin="dense"
-              label="Area Name"
-              fullWidth
-              variant="outlined"
-              value={currentArea?.name || ''}
-              onChange={(e) => currentArea && setCurrentArea({ ...currentArea, name: e.target.value })}
-              required
-            />
-            
-            <FormControl fullWidth margin="dense">
-              <InputLabel id="area-type-select-label">Area Type</InputLabel>
-              <Select
-                labelId="area-type-select-label"
-                value={currentArea?.type || 'connector'}
-                label="Area Type"
-                onChange={(e) => handleSetAreaType(e.target.value)}
+      {showAreaForm && currentArea && (
+        <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)} maxWidth="sm" fullWidth>
+          <form onSubmit={handleSaveArea}>
+            <DialogTitle>
+              {currentArea.id.includes('temp-') ? 'Create New Area' : 'Edit Area'}
+            </DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus
+                margin="dense"
+                label="Area Name"
+                fullWidth
+                value={currentArea.name}
+                onChange={(e) => setCurrentArea({...currentArea, name: e.target.value})}
                 required
-              >
-                {Object.entries(AREA_TYPES).map(([type, { color }]) => (
-                  <MenuItem key={type} value={type}>
-                    <Box
-                      sx={{
-                        width: 16,
-                        height: 16,
-                        mr: 1,
-                        backgroundColor: color,
-                        display: 'inline-block',
-                        verticalAlign: 'text-bottom',
-                      }}
-                    />
-                    {type}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            
-            <TextField
-              margin="dense"
-              label="Description (Optional)"
-              fullWidth
-              variant="outlined"
-              multiline
-              rows={3}
-              value={currentArea?.description || ''}
-              onChange={(e) => currentArea && setCurrentArea({ ...currentArea, description: e.target.value })}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setShowAreaForm(false)}>Cancel</Button>
-            <Button type="submit" variant="contained">Save</Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+                sx={{ mb: 2 }}
+              />
+              
+              <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+                <InputLabel>Area Type</InputLabel>
+                <Select
+                  value={currentArea.type}
+                  onChange={(e) => {
+                    const newType = e.target.value as string;
+                    // Use type assertion to tell TypeScript this is a valid key
+                    const areaColor = AREA_TYPES[newType as keyof typeof AREA_TYPES]?.color || currentArea.color;
+                    setCurrentArea({
+                      ...currentArea, 
+                      type: newType,
+                      color: areaColor
+                    });
+                  }}
+                >
+                  {Object.entries(AREA_TYPES).map(([type, details]) => (
+                    <MenuItem key={type} value={type}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box 
+                          sx={{ 
+                            width: 16, 
+                            height: 16, 
+                            backgroundColor: details.color,
+                            borderRadius: '50%'
+                          }} 
+                        />
+                        {details.label}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <Typography gutterBottom>
+                  Walkable
+                </Typography>
+                <ToggleButtonGroup
+                  value={currentArea.walkable}
+                  exclusive
+                  onChange={(_, newValue) => {
+                    // Don't allow deselecting, only switching
+                    if (newValue !== null) {
+                      setCurrentArea({...currentArea, walkable: newValue});
+                    }
+                  }}
+                >
+                  <ToggleButton value={true} color="success">
+                    <Tooltip title="Agents can walk through this area">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <DragIndicatorIcon />
+                        <Typography variant="body2">Walkable</Typography>
+                      </Box>
+                    </Tooltip>
+                  </ToggleButton>
+                  <ToggleButton value={false} color="error">
+                    <Tooltip title="Agents cannot walk through this area (wall/obstacle)">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <BlockIcon />
+                        <Typography variant="body2">Blocked</Typography>
+                      </Box>
+                    </Tooltip>
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </FormControl>
+              
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <Typography gutterBottom>
+                  Tactical Importance
+                </Typography>
+                <ToggleButtonGroup
+                  value={currentArea.tactical}
+                  exclusive
+                  onChange={(_, newValue) => {
+                    if (newValue !== null) {
+                      setCurrentArea({...currentArea, tactical: newValue});
+                    }
+                  }}
+                >
+                  <ToggleButton value={true} color="primary">
+                    <Tooltip title="This is a tactically important area (site, choke point)">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <LockIcon />
+                        <Typography variant="body2">Tactical</Typography>
+                      </Box>
+                    </Tooltip>
+                  </ToggleButton>
+                  <ToggleButton value={false}>
+                    <Tooltip title="Standard area with no special tactical significance">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <ClearIcon />
+                        <Typography variant="body2">Standard</Typography>
+                      </Box>
+                    </Tooltip>
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </FormControl>
+              
+              <TextField
+                margin="dense"
+                label="Description (Optional)"
+                fullWidth
+                multiline
+                rows={3}
+                value={currentArea.description || ''}
+                onChange={(e) => setCurrentArea({...currentArea, description: e.target.value})}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setShowAreaForm(false)}>Cancel</Button>
+              <Button type="submit" variant="contained" color="primary">Save</Button>
+            </DialogActions>
+          </form>
+        </Dialog>
+      )}
       
       {/* Snackbar for notifications */}
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={6000}
-        onClose={handleSnackbarClose}
+        onClose={() => setSnackbarOpen(false)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity}>
+        <Alert 
+          onClose={() => setSnackbarOpen(false)} 
+          severity={snackbarSeverity}
+          sx={{ width: '100%' }}
+        >
           {snackbarMessage}
         </Alert>
       </Snackbar>
-    </Box>
+    </Paper>
   );
 };
 

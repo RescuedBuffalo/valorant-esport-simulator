@@ -20,6 +20,7 @@ import MapBuilder from './components/MapBuilder';
 import TestPage from './pages/TestPage';
 import NotFound from './pages/NotFound';
 import ErrorBoundary from './components/ErrorBoundary';
+import AgentBrowser from './components/AgentBrowser';
 
 // New League components
 import LeagueList from './components/LeagueList';
@@ -38,6 +39,7 @@ const routes: RouteConfig[] = [
   { path: '/leagues', name: 'Leagues' },
   { path: '/franchise', name: 'Franchise' },
   { path: '/maps', name: 'Maps' },
+  { path: '/agents', name: 'Agents' },
   { path: '/test', name: 'Test' },
 ];
 
@@ -130,6 +132,7 @@ function App() {
               <Route path="/franchise/dashboard" element={<FranchiseDashboard />} />
               <Route path="/maps" element={<Maps />} />
               <Route path="/maps/builder" element={<MapBuilder />} />
+              <Route path="/agents" element={<AgentBrowser />} />
               <Route path="/test" element={<TestPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
