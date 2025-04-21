@@ -1,6 +1,84 @@
 import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
-import config, { debugLog } from '../config';
+import { config, debugLog } from '../config';
+
+// Get the singleton metrics service instance
 import { MetricsService } from './metrics';
+const metrics = MetricsService.getInstance();
+
+// Types for round simulation
+export interface RoundSimulationRequest {
+  team_a: string;
+  team_b: string;
+  map_name: string;
+  round_number: number;
+  economy?: {
+    team_a: number;
+    team_b: number;
+  };
+  loss_streaks?: {
+    team_a: number;
+    team_b: number;
+  };
+  agent_selections?: {
+    team_a: Record<string, string>;
+    team_b: Record<string, string>;
+  };
+}
+
+export interface RoundEvent {
+  type: string;
+  description: string;
+  timestamp: number;
+  player_id?: string;
+  player_name?: string;
+  target_id?: string;
+  target_name?: string;
+  location?: [number, number];
+  details?: Record<string, any>;
+}
+
+export interface RoundSimulationResponse {
+  round_data: {
+    round_number: number;
+    winner: string;
+    events: RoundEvent[];
+    economy: {
+      team_a: number;
+      team_b: number;
+    };
+    loss_streaks: {
+      team_a: number;
+      team_b: number;
+    };
+    map_data?: any;
+  };
+  team_info: {
+    team_a: {
+      id: string;
+      name: string;
+      logo?: string;
+      players: Array<{
+        id: string;
+        firstName: string;
+        lastName: string;
+        gamerTag: string;
+        agent: string;
+      }>;
+    };
+    team_b: {
+      id: string;
+      name: string;
+      logo?: string;
+      players: Array<{
+        id: string;
+        firstName: string;
+        lastName: string;
+        gamerTag: string;
+        agent: string;
+      }>;
+    };
+  };
+}
 
 // Extend AxiosRequestConfig to include metadata
 declare module 'axios' {
@@ -19,9 +97,6 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
-
-// Get metrics service instance
-const metrics = MetricsService.getInstance();
 
 // Request interceptor for API calls
 api.interceptors.request.use(
@@ -95,12 +170,9 @@ api.interceptors.response.use(
 /**
  * Generic API Service for making HTTP requests
  */
-export const ApiService = {
+const ApiService = {
   /**
    * Makes a GET request to the API
-   * @param url - The URL to make the request to
-   * @param config - Optional axios config
-   * @returns A promise that resolves to the response data
    */
   get: <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
     return api.get<T>(url, config).then((response) => response.data);
@@ -108,10 +180,6 @@ export const ApiService = {
 
   /**
    * Makes a POST request to the API
-   * @param url - The URL to make the request to
-   * @param data - The data to send in the request body
-   * @param config - Optional axios config
-   * @returns A promise that resolves to the response data
    */
   post: <T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
     return api.post<T>(url, data, config).then((response) => response.data);
@@ -119,10 +187,6 @@ export const ApiService = {
 
   /**
    * Makes a PUT request to the API
-   * @param url - The URL to make the request to
-   * @param data - The data to send in the request body
-   * @param config - Optional axios config
-   * @returns A promise that resolves to the response data
    */
   put: <T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
     return api.put<T>(url, data, config).then((response) => response.data);
@@ -130,12 +194,16 @@ export const ApiService = {
 
   /**
    * Makes a DELETE request to the API
-   * @param url - The URL to make the request to
-   * @param config - Optional axios config
-   * @returns A promise that resolves to the response data
    */
   delete: <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
     return api.delete<T>(url, config).then((response) => response.data);
+  },
+
+  /**
+   * Simulates a single round with detailed events
+   */
+  simulateRound: (data: RoundSimulationRequest): Promise<RoundSimulationResponse> => {
+    return api.post<RoundSimulationResponse>('/api/v1/matches/simulate-round', data).then((response) => response.data);
   },
 };
 
