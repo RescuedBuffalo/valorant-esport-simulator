@@ -3,11 +3,13 @@ Main application entry point.
 """
 import logging
 import traceback
+import time
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.analytics import Analytics
+from app.core.prometheus import setup_instrumentator, ERROR_COUNT, REQUEST_LATENCY, ACTIVE_USERS
 from app.core.config import settings
 from app.db.session import engine
 from app.db.init_db import init_db
@@ -48,28 +50,60 @@ analytics = Analytics(
     sentry_dsn=settings.SENTRY_DSN
 )
 
+# Setup Prometheus monitoring
+setup_instrumentator(app)
+
 @app.middleware("http")
 async def track_requests(request: Request, call_next):
     """Middleware to track all requests."""
     # Log request details
     logger.info(f"Request: {request.method} {request.url.path} - Client: {request.client.host}")
     
-    response = await call_next(request)
+    start_time = time.time()
     
-    # Log response status
-    logger.info(f"Response: {response.status_code}")
-    
-    if hasattr(request.state, "user_id"):
-        # Get session ID safely, with default if not present
-        session_id = getattr(request.session, "session_id", None) if hasattr(request, "session") else None
+    try:
+        response = await call_next(request)
         
-        analytics.track_user_session(
-            user_id=request.state.user_id,
-            session_id=session_id or "anonymous",
-            request=request
-        )
-    
-    return response
+        # Record request latency
+        duration = time.time() - start_time
+        REQUEST_LATENCY.labels(
+            method=request.method,
+            endpoint=request.url.path
+        ).observe(duration)
+        
+        # Log response status
+        logger.info(f"Response: {response.status_code}")
+        
+        if hasattr(request.state, "user_id"):
+            # Get session ID safely, with default if not present
+            session_id = getattr(request.session, "session_id", None) if hasattr(request, "session") else None
+            
+            analytics.track_user_session(
+                user_id=request.state.user_id,
+                session_id=session_id or "anonymous",
+                request=request
+            )
+            
+            # Track active users
+            ACTIVE_USERS.inc()
+        
+        return response
+    except Exception as e:
+        # Track errors
+        ERROR_COUNT.labels(
+            type=type(e).__name__,
+            location=f"{request.method}:{request.url.path}"
+        ).inc()
+        
+        # Re-raise the exception
+        raise
+
+@app.on_event("startup")
+async def startup_event():
+    """Run on application startup."""
+    logger.info("Starting up the Valorant Esports Simulator API...")
+    # Reset active users gauge on startup
+    ACTIVE_USERS.set(0)
 
 @app.get("/")
 async def root():
@@ -82,18 +116,20 @@ async def root():
             "players": "/api/v1/players",
             "matches": "/api/v1/matches",
             "tournaments": "/api/v1/tournaments",
-            "leagues": "/api/v1/leagues"
+            "leagues": "/api/v1/leagues",
+            "metrics": "/metrics"
         }
     }
 
 # Import and include routers
-from app.api.v1 import team, player, match, tournament, league
+from app.api.v1 import team, player, match, tournament, league, metrics
 
 app.include_router(team.router, prefix="/api/v1/teams", tags=["teams"])
 app.include_router(player.router, prefix="/api/v1/players", tags=["players"])
 app.include_router(match.router, prefix="/api/v1/matches", tags=["matches"])
 app.include_router(tournament.router, prefix="/api/v1/tournaments", tags=["tournaments"])
 app.include_router(league.router, prefix="/api/v1", tags=["leagues"])
+app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
 
 @app.get("/api/v1/regions")
 async def get_regions():
@@ -106,6 +142,7 @@ async def get_regions():
 async def custom_404_handler(request: Request, exc: HTTPException):
     """Custom handler for 404 errors."""
     logger.warning(f"Not found: {request.url.path}")
+    ERROR_COUNT.labels(type="NotFound", location=request.url.path).inc()
     return JSONResponse(
         status_code=404,
         content={
@@ -125,6 +162,8 @@ async def custom_404_handler(request: Request, exc: HTTPException):
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler for unhandled errors."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    error_type = type(exc).__name__
+    ERROR_COUNT.labels(type=error_type, location=request.url.path).inc()
     return JSONResponse(
         status_code=500,
         content={

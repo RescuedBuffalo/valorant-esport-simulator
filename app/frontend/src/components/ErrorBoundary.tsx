@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Box, Typography, Button, Paper, Container } from '@mui/material';
 import { debugLog } from '../config';
+import { MetricsService } from '../services/metrics';
 
 interface Props {
   children: ReactNode;
@@ -14,6 +15,8 @@ interface State {
 }
 
 class ErrorBoundary extends Component<Props, State> {
+  private metrics: MetricsService;
+  
   constructor(props: Props) {
     super(props);
     this.state = {
@@ -21,6 +24,7 @@ class ErrorBoundary extends Component<Props, State> {
       error: null,
       errorInfo: null
     };
+    this.metrics = MetricsService.getInstance();
   }
 
   static getDerivedStateFromError(error: Error): State {
@@ -33,10 +37,18 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // Log the error to the console
-    debugLog('Error caught by ErrorBoundary:', error, errorInfo);
+    // Log the error to console
+    console.error('Error caught by boundary:', error, errorInfo);
+    
+    // Track error in metrics service
+    this.metrics.trackError(
+      'react_error_boundary',
+      error.message || 'Unknown error',
+      errorInfo.componentStack || 'unknown_component'
+    );
+    
+    // You can also log the error to an error reporting service like Sentry here
     this.setState({
-      error,
       errorInfo
     });
   }

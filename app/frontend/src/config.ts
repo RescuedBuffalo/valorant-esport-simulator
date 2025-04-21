@@ -15,6 +15,9 @@ export const config = {
     
     // Development settings
     DEV_SERVER_PORT: 3001,
+    
+    // Metrics
+    ENABLE_DEV_METRICS: process.env.REACT_APP_ENABLE_DEV_METRICS === 'true' || false,
 };
 
 // Helper log function that only prints in debug mode

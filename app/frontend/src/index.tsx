@@ -8,6 +8,10 @@ import store from './store';
 import App from './App';
 import { createTheme } from '@mui/material';
 import ErrorBoundary from './components/ErrorBoundary';
+import { MetricsService } from './services/metrics';
+
+// Initialize metrics service
+MetricsService.getInstance();
 
 const theme = createTheme({
   palette: {
