@@ -23,6 +23,7 @@ import {
   ToggleButton,
   Tabs,
   Tab,
+  ButtonGroup,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -40,20 +41,30 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import RouteIcon from '@mui/icons-material/Route';
 import LockIcon from '@mui/icons-material/Lock';
 import BlockIcon from '@mui/icons-material/Block';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
+import PanToolIcon from '@mui/icons-material/PanTool';
+import SettingsIcon from '@mui/icons-material/Settings';
+import FitScreenIcon from '@mui/icons-material/FitScreen';
 import { v4 as uuidv4 } from 'uuid';
+// Import our new MapDataViewer component
+import MapDataViewer from './MapDataViewer';
+
+// Import metrics utilities
+import { recordUserInteraction, recordMapBuilderMetric, recordError } from '../utils/metrics';
 
 // Updated map area types with colors and properties
 const AREA_TYPES = {
   'site': { color: '#ff9966', walkable: true, team: 'neutral', tactical: true },
-  'connector': { color: '#e6e6e6', walkable: true, team: 'neutral', tactical: false },
-  'long': { color: '#f5f5f5', walkable: true, team: 'neutral', tactical: false },
-  'mid': { color: '#cccccc', walkable: true, team: 'neutral', tactical: false },
+  'connector': { color: '#82b1ff', walkable: true, team: 'neutral', tactical: false },
+  'long': { color: '#80cbc4', walkable: true, team: 'neutral', tactical: false },
+  'mid': { color: '#ce93d8', walkable: true, team: 'neutral', tactical: false },
   'spawn': { color: '#ffcc00', walkable: true, team: 'neutral', tactical: false },
   'attacker-spawn': { color: '#ff4655', walkable: true, team: 'attackers', tactical: false },
   'defender-spawn': { color: '#18e5ff', walkable: true, team: 'defenders', tactical: false },
-  'obstacle': { color: '#666666', walkable: false, team: 'neutral', tactical: false },
-  'low-cover': { color: '#999999', walkable: false, team: 'neutral', tactical: true },
-  'high-cover': { color: '#555555', walkable: false, team: 'neutral', tactical: true },
+  'obstacle': { color: '#5c6bc0', walkable: false, team: 'neutral', tactical: false },
+  'low-cover': { color: '#8d6e63', walkable: false, team: 'neutral', tactical: true },
+  'high-cover': { color: '#455a64', walkable: false, team: 'neutral', tactical: true },
 };
 
 // Define interface for a 2D vector
@@ -157,12 +168,6 @@ interface MapBuilderProps {
   onSaveComplete?: (mapData: MapData) => void;
 }
 
-// Import our new MapDataViewer component
-import MapDataViewer from './MapDataViewer';
-
-// Import metrics utilities
-import { recordUserInteraction, recordMapBuilderMetric, recordError } from '../utils/metrics';
-
 const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -176,7 +181,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     collisionMesh: [],
     spawnPoints: { attackers: [], defenders: [] },
     bombsites: {},
-    gridSize: 20,
+    gridSize: 64, // Updated default grid size to 64
     width: 1200,
     height: 1200,
     scale: 1,
@@ -204,18 +209,27 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   const [drawMode, setDrawMode] = useState<'polygon' | 'brush'>('polygon');
   const [isPainting, setIsPainting] = useState(false);
   const [tempPaintedCells, setTempPaintedCells] = useState<GridCell[]>([]);
-  const [gridSize, setGridSize] = useState(20); // Grid cell size
+  const [gridSize, setGridSize] = useState(64); // Updated default grid size
   const [undoHistory, setUndoHistory] = useState<UndoAction[]>([]);
   const [currentPaintColor, setCurrentPaintColor] = useState(AREA_TYPES['connector'].color);
   
   // Add state for tab selection
   const [activeTab, setActiveTab] = useState<'canvas' | 'data'>('canvas');
   
+  // New state for zoom, pan, and grid settings
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [showGridSettings, setShowGridSettings] = useState(false);
+  const [gridWidth, setGridWidth] = useState(64);
+  const [gridHeight, setGridHeight] = useState(64);
+  const [activeToolMode, setActiveToolMode] = useState<'draw' | 'pan'>('draw');
+  
   // Draw the map whenever data changes
   useEffect(() => {
     console.log(`State updated - drawMode: ${drawMode}, tempPaintedCells: ${tempPaintedCells.length}, isCreatingArea: ${isCreatingArea}, isPainting: ${isPainting}`);
     drawMap();
-  }, [mapData, activeAreaId, isCreatingArea, tempPoints, tempPaintedCells, drawMode, isPainting]);
+  }, [mapData, activeAreaId, isCreatingArea, tempPoints, tempPaintedCells, drawMode, isPainting, zoom, pan, gridSize]);
   
   // Draw the map on the canvas
   const drawMap = () => {
@@ -225,11 +239,23 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Update canvas dimensions if needed
+    if (canvas.width !== mapData.width || canvas.height !== mapData.height) {
+      canvas.width = mapData.width;
+      canvas.height = mapData.height;
+    }
+    
+    // Clear canvas with a dark background
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Apply zoom and pan transformation
+    ctx.save();
+    ctx.translate(pan.x, pan.y);
+    ctx.scale(zoom, zoom);
     
     // Draw background grid
-    drawGrid(ctx, canvas.width, canvas.height);
+    drawGrid(ctx, canvas.width / zoom, canvas.height / zoom);
     
     // Log drawing state
     console.log(`Drawing map with ${mapData.areas.length} areas, activeAreaId: ${activeAreaId}, tempPaintedCells: ${tempPaintedCells.length}`);
@@ -260,28 +286,50 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       console.log(`Drawing ${tempPaintedCells.length} temporary painted cells with color ${currentPaintColor}`);
       drawPaintedCells(ctx, tempPaintedCells, currentPaintColor, true);
     }
+    
+    // Restore the canvas context
+    ctx.restore();
   };
   
-  // Draw background grid
+  // Draw background grid with zoom and pan support
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.strokeStyle = '#8c8c8c';
     ctx.lineWidth = 0.5;
     
+    // Calculate grid boundaries with panning offset
+    const startX = Math.floor(-pan.x / zoom / gridSize) * gridSize;
+    const startY = Math.floor(-pan.y / zoom / gridSize) * gridSize;
+    const endX = startX + width + gridSize * 2;
+    const endY = startY + height + gridSize * 2;
+    
     // Draw vertical lines
-    for (let x = 0; x <= width; x += gridSize) {
+    for (let x = startX; x <= endX; x += gridSize) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, endY);
       ctx.stroke();
     }
     
     // Draw horizontal lines
-    for (let y = 0; y <= height; y += gridSize) {
+    for (let y = startY; y <= endY; y += gridSize) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
       ctx.stroke();
     }
+    
+    // Draw axes at origin for reference
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, startY);
+    ctx.lineTo(0, endY);
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.moveTo(startX, 0);
+    ctx.lineTo(endX, 0);
+    ctx.stroke();
   };
   
   // Draw painted cells
@@ -393,7 +441,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     };
   };
   
-  // Get mouse coordinates relative to the canvas with improved accuracy
+  // Get mouse coordinates with zoom and pan adjustments
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | MouseEvent): { x: number, y: number } => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -412,12 +460,16 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     x = Math.max(0, Math.min(x, canvas.width));
     y = Math.max(0, Math.min(y, canvas.height));
     
+    // Adjust for zoom and pan
+    x = (x - pan.x) / zoom;
+    y = (y - pan.y) / zoom;
+    
     console.log(`Raw mouse at (${e.clientX}, ${e.clientY}), canvas coordinates: (${x.toFixed(2)}, ${y.toFixed(2)})`);
     
     return { x, y };
   };
   
-  // Get cell coordinates from mouse position with proper snapping to grid
+  // Get cell coordinates with zoom and pan adjustments
   const getCellFromPosition = (x: number, y: number): GridCell => {
     // Make sure to get the exact grid position by properly snapping to grid
     const gridX = Math.floor(x / gridSize);
@@ -428,8 +480,11 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     const cellY = gridY * gridSize;
     
     // Ensure these values are within canvas boundaries
-    const safeGridX = Math.max(0, Math.min(gridX, Math.floor(canvasRef.current?.width || 1200) / gridSize - 1));
-    const safeGridY = Math.max(0, Math.min(gridY, Math.floor(canvasRef.current?.height || 1200) / gridSize - 1));
+    const maxGridX = Math.floor((canvasRef.current?.width || 1200) / gridSize - 1);
+    const maxGridY = Math.floor((canvasRef.current?.height || 1200) / gridSize - 1);
+    
+    const safeGridX = Math.max(0, Math.min(gridX, maxGridX));
+    const safeGridY = Math.max(0, Math.min(gridY, maxGridY));
     const safeCellX = safeGridX * gridSize;
     const safeCellY = safeGridY * gridSize;
     
@@ -453,10 +508,17 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   // Keep track of the last valid cell to handle fast movement
   const [lastValidCell, setLastValidCell] = useState<GridCell | null>(null);
   
-  // Handle mouse down for drawing or selecting
+  // Handle canvas mouse down with support for panning
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
+    // If panning mode is active, start panning
+    if (activeToolMode === 'pan') {
+      setIsPanning(true);
+      setLastMousePos({ x: e.clientX, y: e.clientY });
+      return;
+    }
     
     const { x, y } = getCanvasCoordinates(e);
     
@@ -552,16 +614,30 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
   // Track if mouse is currently over the canvas
   const [isMouseOverCanvas, setIsMouseOverCanvas] = useState(false);
   
-  // Handle mouse move
+  // Handle mouse move with support for panning
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
     setIsMouseOverCanvas(true);
     
+    // Handle panning
+    if (isPanning && lastMousePos) {
+      const dx = e.clientX - lastMousePos.x;
+      const dy = e.clientY - lastMousePos.y;
+      
+      setPan(prevPan => ({
+        x: prevPan.x + dx,
+        y: prevPan.y + dy
+      }));
+      
+      setLastMousePos({ x: e.clientX, y: e.clientY });
+      return;
+    }
+    
     const { x, y } = getCanvasCoordinates(e);
     
-    setLastMousePos({ x, y });
+    setLastMousePos({ x: e.clientX, y: e.clientY });
     
     // If we're painting with brush (only in drag mode)
     if (e.buttons === 1 && drawMode === 'brush') {
@@ -605,90 +681,10 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     }
   };
   
-  // Handle mouse entering canvas
-  const handleCanvasMouseEnter = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsMouseOverCanvas(true);
-    console.log("Mouse entered canvas");
-    
-    // If button is pressed and we have a last valid cell, continue from there
-    if (e.buttons === 1 && drawMode === 'brush' && lastValidCell) {
-      const { x, y } = getCanvasCoordinates(e);
-      console.log(`Mouse re-entered with button down, connecting from last valid cell at (${lastValidCell.gridX}, ${lastValidCell.gridY})`);
-      
-      // Use linear interpolation to fill in missing cells between last valid cell and current position
-      const currentCell = getCellFromPosition(x, y);
-      interpolateCells(lastValidCell, currentCell);
-    }
-  };
-  
-  // Handle mouse leaving canvas
-  const handleCanvasMouseLeave = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsMouseOverCanvas(false);
-    console.log("Mouse left canvas");
-    handleCanvasMouseUp();
-  };
-  
-  // Interpolate cells between two points for continuous painting when mouse moves fast
-  const interpolateCells = (startCell: GridCell, endCell: GridCell) => {
-    console.log(`Interpolating cells from (${startCell.gridX}, ${startCell.gridY}) to (${endCell.gridX}, ${endCell.gridY})`);
-    
-    // Calculate the differences and determine number of steps needed for interpolation
-    const dx = endCell.gridX - startCell.gridX;
-    const dy = endCell.gridY - startCell.gridY;
-    const steps = Math.max(Math.abs(dx), Math.abs(dy));
-    
-    if (steps <= 1) {
-      console.log("No interpolation needed, cells are adjacent");
-      return; // No interpolation needed for adjacent cells
-    }
-    
-    console.log(`Interpolating ${steps} steps`);
-    const newCells: GridCell[] = [];
-    
-    // Generate the interpolated cells
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const interpGridX = Math.round(startCell.gridX + dx * t);
-      const interpGridY = Math.round(startCell.gridY + dy * t);
-      const interpCellX = interpGridX * gridSize;
-      const interpCellY = interpGridY * gridSize;
-      
-      const interpCell: GridCell = {
-        x: interpCellX,
-        y: interpCellY,
-        gridX: interpGridX,
-        gridY: interpGridY
-      };
-      
-      // Only add if the cell doesn't already exist in tempPaintedCells
-      if (!cellExists(tempPaintedCells, interpCell) && 
-          !newCells.some(cell => cell.gridX === interpCell.gridX && cell.gridY === interpCell.gridY)) {
-        console.log(`Adding interpolated cell at (${interpCell.gridX}, ${interpCell.gridY})`);
-        newCells.push(interpCell);
-      }
-    }
-    
-    if (newCells.length > 0) {
-      // Add all the new cells at once
-      console.log(`Adding ${newCells.length} interpolated cells`);
-      setTempPaintedCells([...tempPaintedCells, ...newCells]);
-      
-      // Add each cell to the undo history
-      const newUndoHistory = [...undoHistory];
-      newCells.forEach(cell => {
-        newUndoHistory.push({
-          type: 'PAINT_CELL',
-          cell,
-          color: currentPaintColor
-        });
-      });
-      setUndoHistory(newUndoHistory);
-    }
-  };
-  
-  // Handle mouse up
+  // Handle mouse up with support for panning
   const handleCanvasMouseUp = () => {
     console.log("Canvas mouseUp event");
+    setIsPanning(false);
     setIsDraggingPoint(false);
     setDraggingPointIndex(null);
     setDraggingAreaId(null);
@@ -1505,6 +1501,151 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
     });
   }, []);
 
+  // Function to handle zoom in
+  const handleZoomIn = () => {
+    setZoom(prevZoom => Math.min(prevZoom * 1.2, 5)); // Limit max zoom to 5x
+    
+    // Record the zoom action metric
+    recordUserInteraction('MapBuilder', 'zoom_in', {
+      newZoom: zoom * 1.2
+    });
+  };
+  
+  // Function to handle zoom out
+  const handleZoomOut = () => {
+    setZoom(prevZoom => Math.max(prevZoom / 1.2, 0.2)); // Limit min zoom to 0.2x
+    
+    // Record the zoom action metric
+    recordUserInteraction('MapBuilder', 'zoom_out', {
+      newZoom: zoom / 1.2
+    });
+  };
+  
+  // Function to reset zoom and pan
+  const handleResetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    
+    // Record the reset view action metric
+    recordUserInteraction('MapBuilder', 'reset_view');
+  };
+  
+  // Function to toggle between drawing and panning tools
+  const handleToolModeChange = (mode: 'draw' | 'pan') => {
+    setActiveToolMode(mode);
+    
+    // If switching to draw mode, ensure we're not panning
+    if (mode === 'draw') {
+      setIsPanning(false);
+    }
+    
+    // Record the tool change metric
+    recordUserInteraction('MapBuilder', 'change_tool_mode', { mode });
+  };
+  
+  // Function to apply grid size changes
+  const applyGridSettings = () => {
+    // Update grid size state and map data
+    setGridSize(gridWidth);
+    setMapData(prev => ({
+      ...prev,
+      gridSize: gridWidth,
+      width: canvasRef.current?.width || 1200,
+      height: canvasRef.current?.height || 1200
+    }));
+    
+    // Close the settings dialog
+    setShowGridSettings(false);
+    
+    // Record grid size change metric
+    recordMapBuilderMetric('update', 'grid_size', 1);
+    recordUserInteraction('MapBuilder', 'update_grid_size', {
+      width: gridWidth,
+      height: gridHeight
+    });
+  };
+
+  // Handle mouse entering canvas
+  const handleCanvasMouseEnter = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsMouseOverCanvas(true);
+    console.log("Mouse entered canvas");
+    
+    // If button is pressed and we have a last valid cell, continue from there
+    if (e.buttons === 1 && drawMode === 'brush' && lastValidCell) {
+      const { x, y } = getCanvasCoordinates(e);
+      console.log(`Mouse re-entered with button down, connecting from last valid cell at (${lastValidCell.gridX}, ${lastValidCell.gridY})`);
+      
+      // Use linear interpolation to fill in missing cells between last valid cell and current position
+      const currentCell = getCellFromPosition(x, y);
+      interpolateCells(lastValidCell, currentCell);
+    }
+  };
+  
+  // Handle mouse leaving canvas
+  const handleCanvasMouseLeave = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsMouseOverCanvas(false);
+    console.log("Mouse left canvas");
+    handleCanvasMouseUp();
+  };
+  
+  // Interpolate cells between two points for continuous painting when mouse moves fast
+  const interpolateCells = (startCell: GridCell, endCell: GridCell) => {
+    console.log(`Interpolating cells from (${startCell.gridX}, ${startCell.gridY}) to (${endCell.gridX}, ${endCell.gridY})`);
+    
+    // Calculate the differences and determine number of steps needed for interpolation
+    const dx = endCell.gridX - startCell.gridX;
+    const dy = endCell.gridY - startCell.gridY;
+    const steps = Math.max(Math.abs(dx), Math.abs(dy));
+    
+    if (steps <= 1) {
+      console.log("No interpolation needed, cells are adjacent");
+      return; // No interpolation needed for adjacent cells
+    }
+    
+    console.log(`Interpolating ${steps} steps`);
+    const newCells: GridCell[] = [];
+    
+    // Generate the interpolated cells
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const interpGridX = Math.round(startCell.gridX + dx * t);
+      const interpGridY = Math.round(startCell.gridY + dy * t);
+      const interpCellX = interpGridX * gridSize;
+      const interpCellY = interpGridY * gridSize;
+      
+      const interpCell: GridCell = {
+        x: interpCellX,
+        y: interpCellY,
+        gridX: interpGridX,
+        gridY: interpGridY
+      };
+      
+      // Only add if the cell doesn't already exist in tempPaintedCells
+      if (!cellExists(tempPaintedCells, interpCell) && 
+          !newCells.some(cell => cell.gridX === interpCell.gridX && cell.gridY === interpCell.gridY)) {
+        console.log(`Adding interpolated cell at (${interpCell.gridX}, ${interpCell.gridY})`);
+        newCells.push(interpCell);
+      }
+    }
+    
+    if (newCells.length > 0) {
+      // Add all the new cells at once
+      console.log(`Adding ${newCells.length} interpolated cells`);
+      setTempPaintedCells([...tempPaintedCells, ...newCells]);
+      
+      // Add each cell to the undo history
+      const newUndoHistory = [...undoHistory];
+      newCells.forEach(cell => {
+        newUndoHistory.push({
+          type: 'PAINT_CELL',
+          cell,
+          color: currentPaintColor
+        });
+      });
+      setUndoHistory(newUndoHistory);
+    }
+  };
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -1528,112 +1669,176 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
           
           <Grid item xs={12} md={8}>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {/* Drawing Mode Selector */}
+              {/* Tool Mode Selector */}
               <ToggleButtonGroup
-                value={drawMode}
+                value={activeToolMode}
                 exclusive
                 size="small"
-                aria-label="drawing mode"
+                aria-label="tool mode"
+                sx={{ mr: 1 }}
               >
                 <ToggleButton 
-                  value="polygon" 
-                  onClick={startPolygonMode}
-                  aria-label="polygon tool"
+                  value="draw" 
+                  onClick={() => handleToolModeChange('draw')}
+                  aria-label="draw tool"
                 >
-                  <Tooltip title="Polygon Tool">
-                    <PolylineIcon />
+                  <Tooltip title="Drawing Tools">
+                    <BrushIcon />
                   </Tooltip>
                 </ToggleButton>
                 <ToggleButton 
-                  value="brush" 
-                  onClick={() => {
-                    console.log("Brush tool button clicked");
-                    startPaintingMode();
-                    // Force redraw after short delay to ensure state is updated
-                    setTimeout(forceCanvasUpdate, 100);
-                  }}
-                  aria-label="brush tool"
+                  value="pan" 
+                  onClick={() => handleToolModeChange('pan')}
+                  aria-label="pan tool"
                 >
-                  <Tooltip title="Brush Tool (Click to paint squares)">
-                    <BrushIcon />
+                  <Tooltip title="Pan Tool">
+                    <PanToolIcon />
                   </Tooltip>
                 </ToggleButton>
               </ToggleButtonGroup>
               
-              {/* Color Selector */}
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel id="area-type-label">Area Type</InputLabel>
-                <Select
-                  labelId="area-type-label"
-                  value={Object.keys(AREA_TYPES).find(
-                    key => AREA_TYPES[key as keyof typeof AREA_TYPES]?.color === currentPaintColor
-                  ) || 'connector'}
-                  label="Area Type"
-                  onChange={(e) => handleSetPaintColor(e.target.value)}
-                  size="small"
+              {/* Zoom Controls */}
+              <ButtonGroup size="small" aria-label="zoom controls" sx={{ mr: 1 }}>
+                <Tooltip title="Zoom In">
+                  <Button onClick={handleZoomIn}>
+                    <ZoomInIcon />
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Zoom Out">
+                  <Button onClick={handleZoomOut}>
+                    <ZoomOutIcon />
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Reset View">
+                  <Button onClick={handleResetView}>
+                    <FitScreenIcon />
+                  </Button>
+                </Tooltip>
+              </ButtonGroup>
+              
+              {/* Grid Settings Button */}
+              <Tooltip title="Grid Settings">
+                <Button 
+                  variant="outlined" 
+                  size="small" 
+                  onClick={() => setShowGridSettings(true)} 
+                  sx={{ mr: 1 }}
                 >
-                  {Object.entries(AREA_TYPES).map(([type, { color }]) => (
-                    <MenuItem key={type} value={type}>
-                      <Box
-                        sx={{
-                          width: 16,
-                          height: 16,
-                          mr: 1,
-                          backgroundColor: color,
-                          display: 'inline-block',
-                          verticalAlign: 'text-bottom',
-                        }}
-                      />
-                      {type}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              
-              <Button 
-                variant="contained" 
-                color="primary" 
-                startIcon={<AddIcon />}
-                onClick={startCreatingArea}
-                disabled={isCreatingArea || isPainting}
-                size="small"
-              >
-                Add Area
-              </Button>
-              
-              <Tooltip title="Undo Last Action">
-                <span>
-                  <IconButton 
-                    onClick={handleUndo} 
-                    disabled={undoHistory.length === 0}
-                    size="small"
-                  >
-                    <UndoIcon />
-                  </IconButton>
-                </span>
+                  <SettingsIcon sx={{ mr: 0.5 }} /> Grid
+                </Button>
               </Tooltip>
               
-              <Divider orientation="vertical" flexItem />
-              
-              {activeAreaId && (
+              {/* Only show drawing tools when in draw mode */}
+              {activeToolMode === 'draw' && (
                 <>
+                  {/* Drawing Mode Selector */}
+                  <ToggleButtonGroup
+                    value={drawMode}
+                    exclusive
+                    size="small"
+                    aria-label="drawing mode"
+                  >
+                    <ToggleButton 
+                      value="polygon" 
+                      onClick={startPolygonMode}
+                      aria-label="polygon tool"
+                    >
+                      <Tooltip title="Polygon Tool">
+                        <PolylineIcon />
+                      </Tooltip>
+                    </ToggleButton>
+                    <ToggleButton 
+                      value="brush" 
+                      onClick={() => {
+                        console.log("Brush tool button clicked");
+                        startPaintingMode();
+                        // Force redraw after short delay to ensure state is updated
+                        setTimeout(forceCanvasUpdate, 100);
+                      }}
+                      aria-label="brush tool"
+                    >
+                      <Tooltip title="Brush Tool (Click to paint squares)">
+                        <BrushIcon />
+                      </Tooltip>
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                  
+                  {/* Color Selector */}
+                  <FormControl size="small" sx={{ minWidth: 120, mx: 1 }}>
+                    <InputLabel id="area-type-label">Area Type</InputLabel>
+                    <Select
+                      labelId="area-type-label"
+                      value={Object.keys(AREA_TYPES).find(
+                        key => AREA_TYPES[key as keyof typeof AREA_TYPES]?.color === currentPaintColor
+                      ) || 'connector'}
+                      label="Area Type"
+                      onChange={(e) => handleSetPaintColor(e.target.value)}
+                      size="small"
+                    >
+                      {Object.entries(AREA_TYPES).map(([type, { color }]) => (
+                        <MenuItem key={type} value={type}>
+                          <Box
+                            sx={{
+                              width: 16,
+                              height: 16,
+                              mr: 1,
+                              backgroundColor: color,
+                              display: 'inline-block',
+                              verticalAlign: 'text-bottom',
+                            }}
+                          />
+                          {type}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  
                   <Button 
-                    variant="outlined" 
-                    startIcon={<EditIcon />}
-                    onClick={handleEditArea}
+                    variant="contained" 
+                    color="primary" 
+                    startIcon={<AddIcon />}
+                    onClick={startCreatingArea}
+                    disabled={isCreatingArea || isPainting}
                     size="small"
                   >
-                    Edit
+                    Add Area
                   </Button>
-                  <Button 
-                    variant="outlined" 
-                    color="error" 
-                    startIcon={<DeleteIcon />}
-                    onClick={handleDeleteArea}
-                    size="small"
-                  >
-                    Delete
-                  </Button>
+                  
+                  <Tooltip title="Undo Last Action">
+                    <span>
+                      <IconButton 
+                        onClick={handleUndo} 
+                        disabled={undoHistory.length === 0}
+                        size="small"
+                      >
+                        <UndoIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  
+                  <Divider orientation="vertical" flexItem />
+                  
+                  {activeAreaId && (
+                    <>
+                      <Button 
+                        variant="outlined" 
+                        startIcon={<EditIcon />}
+                        onClick={handleEditArea}
+                        size="small"
+                      >
+                        Edit
+                      </Button>
+                      <Button 
+                        variant="outlined" 
+                        color="error" 
+                        startIcon={<DeleteIcon />}
+                        onClick={handleDeleteArea}
+                        size="small"
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  )}
                 </>
               )}
               
@@ -1708,7 +1913,13 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
             onMouseUp={handleCanvasMouseUp}
             onMouseEnter={handleCanvasMouseEnter}
             onMouseLeave={handleCanvasMouseLeave}
-            style={{ display: 'block', width: '100%', height: '100%' }}
+            style={{ 
+              display: 'block', 
+              width: '100%', 
+              height: '100%',
+              cursor: activeToolMode === 'pan' ? 'grab' : (isDraggingPoint ? 'grabbing' : 
+                      isCreatingArea ? 'crosshair' : (drawMode === 'brush' ? 'cell' : 'default'))
+            }}
           />
           
           {/* Area creation controls */}
@@ -1782,6 +1993,27 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
               </Button>
             </Box>
           )}
+          
+          {/* Zoom indicator */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 10,
+              right: 10,
+              bgcolor: 'rgba(0, 0, 0, 0.6)',
+              color: 'white',
+              px: 1,
+              py: 0.5,
+              borderRadius: 1,
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5
+            }}
+          >
+            <ZoomInIcon fontSize="small" />
+            {(zoom * 100).toFixed(0)}%
+          </Box>
         </Box>
       )}
       
@@ -1791,6 +2023,44 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
           <MapDataViewer mapData={mapData} />
         </Box>
       )}
+      
+      {/* Grid Settings Dialog */}
+      <Dialog open={showGridSettings} onClose={() => setShowGridSettings(false)}>
+        <DialogTitle>Grid Settings</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Configure the grid size. Smaller values create a finer grid, larger values create a coarser grid.
+          </Typography>
+          <Box sx={{ py: 2 }}>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <TextField
+                label="Grid Size"
+                type="number"
+                value={gridWidth}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value);
+                  if (value >= 16 && value <= 256) {
+                    setGridWidth(value);
+                    setGridHeight(value);
+                  }
+                }}
+                inputProps={{ min: 16, max: 256 }}
+                helperText="Value between 16 and 256 (pixels)"
+                variant="outlined"
+                fullWidth
+              />
+            </FormControl>
+            
+            <Typography variant="body2" gutterBottom>
+              Current grid: {gridSize}px × {gridSize}px
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowGridSettings(false)}>Cancel</Button>
+          <Button variant="contained" onClick={applyGridSettings}>Apply</Button>
+        </DialogActions>
+      </Dialog>
       
       {/* Area edit dialog */}
       <Dialog open={showAreaForm} onClose={() => setShowAreaForm(false)}>
