@@ -18,6 +18,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     debugLog('API Request:', config.method?.toUpperCase(), config.url);
+    debugLog('API Request URL:', `${config.baseURL}${config.url}`);
     return config;
   },
   (error) => {
@@ -35,8 +36,11 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response) {
       debugLog('API Error Response:', error.response.status, error.response.data);
+      debugLog('API Error URL:', error.config?.url);
+      debugLog('API Error Full URL:', `${error.config?.baseURL}${error.config?.url}`);
     } else if (error.request) {
       debugLog('API Error Request:', error.request);
+      debugLog('API Error Config:', error.config);
     } else {
       debugLog('API Error Message:', error.message);
     }
@@ -80,7 +84,24 @@ const ApiService = {
    * Simulates a single round with detailed events
    */
   simulateRound: (data: RoundSimulationRequest): Promise<RoundSimulationResponse> => {
-    return api.post<RoundSimulationResponse>('/api/v1/matches/simulate-round', data).then((response) => response.data);
+    console.log('Simulating round with data:', data);
+    console.log('API URL:', config.API_URL);
+    return api.post<RoundSimulationResponse>('/api/v1/matches/simulate-round', data)
+      .then((response) => {
+        console.log('Simulation successful, response:', response.data);
+        return response.data;
+      })
+      .catch((error) => {
+        console.error('Simulation error:', error);
+        if (error.response) {
+          console.error('Error response:', error.response.data);
+          console.error('Error status:', error.response.status);
+        }
+        if (error.config) {
+          console.error('Full URL:', `${error.config.baseURL}${error.config.url}`);
+        }
+        throw error;
+      });
   },
 };
 
