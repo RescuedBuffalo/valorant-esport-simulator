@@ -1534,9 +1534,28 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
       
       // Use the performance measuring wrapper
       const savedMap = await measureMapBuilderOperation(async () => {
-        // Simulate save operation for now
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Replace with actual API call
-        return mapToSave;
+        try {
+          // Use native fetch API
+          const response = await fetch('/api/maps/', {
+        method: 'POST',
+        headers: {
+              'Content-Type': 'application/json',
+        },
+            body: JSON.stringify(mapToSave),
+      });
+      
+      if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Server responded with status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+          console.log("Map saved to server:", result);
+          return mapToSave;
+        } catch (error) {
+          console.error("Error in API call:", error);
+          throw error;
+        }
       }, 'save_map');
       
       // Show success message
@@ -2441,7 +2460,7 @@ const MapBuilder: React.FC<MapBuilderProps> = ({ onSaveComplete }) => {
                     </Tooltip>
                   </ToggleButton>
                 </ToggleButtonGroup>
-              </FormControl>
+            </FormControl>
             
             <TextField
               margin="dense"

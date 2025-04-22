@@ -21,12 +21,13 @@ import { AppDispatch } from '../store';
 import { simulateMatchThunk } from '../store/thunks/gameThunks';
 import type { MatchResult } from '../store/slices/gameSlice';
 import RoundSimulation from './RoundSimulation';
+import type { RoundEvent } from '../services/api';
 
 type SimulationSpeed = 'slow' | 'normal' | 'fast';
 
 // Mock events for demonstration (will be replaced by API data)
-const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team_b', teamAPlayers: any[], teamBPlayers: any[]) => {
-  const events = [];
+const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team_b', teamAPlayers: any[], teamBPlayers: any[]): RoundEvent[] => {
+  const events: RoundEvent[] = [];
   const roundDuration = 100; // seconds
   
   // Get list of players for each team
@@ -37,7 +38,7 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
   events.push({
     timestamp: 5 + Math.random() * 10,
     type: 'comment',
-    comment: `Teams are setting up for the round, with players moving into position.`,
+    description: `Teams are setting up for the round, with players moving into position.`,
   });
   
   // Random mid-round events
@@ -53,9 +54,12 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
     events.push({
       timestamp: 20 + Math.random() * 15,
       type: 'kill',
-      playerId: killer.id,
-      targetId: victim.id,
-      comment: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName} eliminates ${victim.firstName} "${victim.gamerTag}" ${victim.lastName} with a headshot!`,
+      description: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName} eliminates ${victim.firstName} "${victim.gamerTag}" ${victim.lastName} with a headshot!`,
+      player_id: killer.id,
+      player_name: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName}`,
+      target_id: victim.id,
+      target_name: `${victim.firstName} "${victim.gamerTag}" ${victim.lastName}`,
+      location: [Math.floor(Math.random() * 1000), Math.floor(Math.random() * 1000)],
     });
   }
   
@@ -72,8 +76,11 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
       events.push({
         timestamp: 45 + Math.random() * 20,
         type: 'plant',
-        playerId: planter.id,
-        comment: `${planter.firstName} "${planter.gamerTag}" ${planter.lastName} plants the spike at site ${site}!`,
+        description: `${planter.firstName} "${planter.gamerTag}" ${planter.lastName} plants the spike at site ${site}!`,
+        player_id: planter.id,
+        player_name: `${planter.firstName} "${planter.gamerTag}" ${planter.lastName}`,
+        location: [Math.floor(Math.random() * 1000), Math.floor(Math.random() * 1000)],
+        details: { site }
       });
       
       // Defuse attempt (30% chance of successful defuse if spike is planted)
@@ -86,8 +93,10 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
           events.push({
             timestamp: 70 + Math.random() * 15,
             type: 'defuse',
-            playerId: defuser.id,
-            comment: `${defuser.firstName} "${defuser.gamerTag}" ${defuser.lastName} successfully defuses the spike!`,
+            description: `${defuser.firstName} "${defuser.gamerTag}" ${defuser.lastName} successfully defuses the spike!`,
+            player_id: defuser.id,
+            player_name: `${defuser.firstName} "${defuser.gamerTag}" ${defuser.lastName}`,
+            location: [Math.floor(Math.random() * 1000), Math.floor(Math.random() * 1000)],
           });
         }
       } else {
@@ -95,7 +104,7 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
         events.push({
           timestamp: 90,
           type: 'comment',
-          comment: `The spike detonates! Round goes to the attacking team.`,
+          description: `The spike detonates! Round goes to the attacking team.`,
         });
       }
     }
@@ -104,7 +113,7 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
     events.push({
       timestamp: 75 + Math.random() * 15,
       type: 'comment',
-      comment: Math.random() > 0.5 
+      description: Math.random() > 0.5 
         ? `All attackers eliminated! Defense wins the round.`
         : `All defenders eliminated! Attackers take the round.`,
     });
@@ -207,7 +216,17 @@ const LiveMatchSimulation: React.FC<{
     
     // Generate or retrieve events for this round
     // In a real implementation, these would come from the backend
-    const events = generateMockEvents(roundIndex, attackingTeam, teamAPlayers, teamBPlayers);
+    const apiEvents = generateMockEvents(roundIndex, attackingTeam, teamAPlayers, teamBPlayers);
+    
+    // Convert API events to the format expected by RoundSimulation
+    const transformedEvents = apiEvents.map(event => ({
+      timestamp: event.timestamp,
+      type: event.type as 'kill' | 'ability' | 'plant' | 'defuse' | 'comment',
+      playerId: event.player_id,
+      targetId: event.target_id,
+      comment: event.description,
+      position: event.location
+    }));
     
     return {
       round_number: roundIndex,
@@ -220,7 +239,7 @@ const LiveMatchSimulation: React.FC<{
         team_a: {},
         team_b: {},
       },
-      events: events,
+      events: transformedEvents,
       economy: round.economy || { team_a: 0, team_b: 0 },
       economy_log: round.economy_log,
     };

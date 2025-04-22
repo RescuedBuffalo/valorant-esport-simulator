@@ -101,29 +101,29 @@ function App() {
   return (
     <>
       <MetricsTracker />
-      <Box sx={{ flexGrow: 1 }}>
-        <AppBar position="static">
-          <Toolbar>
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+    <Box sx={{ flexGrow: 1 }}>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               Valorant Esports Simulator
-            </Typography>
-          </Toolbar>
-          <Tabs 
+          </Typography>
+        </Toolbar>
+      <Tabs 
             value={routes.findIndex(route => route.path === currentPath)}
-            onChange={handleTabChange}
+        onChange={handleTabChange}
             centered
             textColor="inherit"
-            variant="fullWidth"
-          >
-            {routes.map((route) => (
-              <Tab key={route.path} label={route.name} />
-            ))}
-          </Tabs>
+        variant="fullWidth"
+      >
+        {routes.map((route) => (
+          <Tab key={route.path} label={route.name} />
+        ))}
+      </Tabs>
         </AppBar>
-        
+      
         <Container maxWidth="lg" sx={{ mt: 4, pb: 4 }}>
           <ErrorBoundary>
-            <Routes>
+        <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/teams" element={<TeamList />} />
               <Route path="/teams/new" element={<TeamCreate />} />
@@ -140,17 +140,17 @@ function App() {
               <Route path="/agents" element={<AgentBrowser />} />
               <Route path="/round-simulation" element={<RoundPlayByPlayDemo />} />
               <Route path="/test" element={<TestPage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
           </ErrorBoundary>
-        </Container>
+      </Container>
         
         <Box component="footer" sx={{ bgcolor: 'secondary.main', py: 2, color: 'white', textAlign: 'center' }}>
           <Typography variant="body2">
             Valorant Esports Simulator © {new Date().getFullYear()}
           </Typography>
         </Box>
-      </Box>
+    </Box>
     </>
   );
 }
