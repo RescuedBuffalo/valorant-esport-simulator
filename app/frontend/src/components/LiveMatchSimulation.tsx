@@ -21,7 +21,7 @@ import { AppDispatch } from '../store';
 import { simulateMatchThunk } from '../store/thunks/gameThunks';
 import type { MatchResult } from '../store/slices/gameSlice';
 import RoundSimulation from './RoundSimulation';
-import type { RoundEvent } from '../services/api';
+import type { RoundEvent } from '../types/api.types';
 
 type SimulationSpeed = 'slow' | 'normal' | 'fast';
 
@@ -35,10 +35,13 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
   const defendingPlayers = attackingTeam === 'team_a' ? teamBPlayers : teamAPlayers;
   
   // Random early events (player movements, positioning)
+  const loc: [number, number] = [0, 0];
   events.push({
     timestamp: 5 + Math.random() * 10,
-    type: 'comment',
-    description: `Teams are setting up for the round, with players moving into position.`,
+    event_type: 'comment',
+    position: loc,
+    player_id: '',
+    details: { description: `Teams are setting up for the round, with players moving into position.` },
   });
   
   // Random mid-round events
@@ -51,20 +54,23 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
   const victim = attackerKill ? defendingPlayers[victimIndex] : attackingPlayers[victimIndex];
   
   if (killer && victim) {
+    const loc: [number, number] = [
+      Math.floor(Math.random() * 1000),
+      Math.floor(Math.random() * 1000)
+    ];
     events.push({
       timestamp: 20 + Math.random() * 15,
-      type: 'kill',
-      description: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName} eliminates ${victim.firstName} "${victim.gamerTag}" ${victim.lastName} with a headshot!`,
+      event_type: 'kill',
+      position: loc,
       player_id: killer.id,
-      player_name: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName}`,
       target_id: victim.id,
-      target_name: `${victim.firstName} "${victim.gamerTag}" ${victim.lastName}`,
-      location: [Math.floor(Math.random() * 1000), Math.floor(Math.random() * 1000)],
+      details: {
+        description: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName} eliminates ${victim.firstName} "${victim.gamerTag}" ${victim.lastName} with a headshot!`,
+        player_name: `${killer.firstName} "${killer.gamerTag}" ${killer.lastName}`,
+        target_name: `${victim.firstName} "${victim.gamerTag}" ${victim.lastName}`
+      }
     });
   }
-  
-  // More kills and events...
-  // This is just a simple example - in a real implementation, these would come from the backend
   
   // Spike plant (50% chance)
   const spikePlanted = Math.random() > 0.5;
@@ -73,14 +79,19 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
     const site = Math.random() > 0.5 ? 'A' : 'B';
     
     if (planter) {
+      const plantLoc: [number, number] = [
+        Math.floor(Math.random() * 1000),
+        Math.floor(Math.random() * 1000)
+      ];
       events.push({
         timestamp: 45 + Math.random() * 20,
-        type: 'plant',
-        description: `${planter.firstName} "${planter.gamerTag}" ${planter.lastName} plants the spike at site ${site}!`,
+        event_type: 'plant',
+        position: plantLoc,
         player_id: planter.id,
-        player_name: `${planter.firstName} "${planter.gamerTag}" ${planter.lastName}`,
-        location: [Math.floor(Math.random() * 1000), Math.floor(Math.random() * 1000)],
-        details: { site }
+        details: {
+          description: `${planter.firstName} "${planter.gamerTag}" ${planter.lastName} plants the spike at site ${site}!`,
+          site
+        }
       });
       
       // Defuse attempt (30% chance of successful defuse if spike is planted)
@@ -90,21 +101,26 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
         const defuser = defendingPlayers[Math.floor(Math.random() * defendingPlayers.length)];
         
         if (defuser) {
+          const defuseLoc: [number, number] = [
+            Math.floor(Math.random() * 1000),
+            Math.floor(Math.random() * 1000)
+          ];
           events.push({
             timestamp: 70 + Math.random() * 15,
-            type: 'defuse',
-            description: `${defuser.firstName} "${defuser.gamerTag}" ${defuser.lastName} successfully defuses the spike!`,
+            event_type: 'defuse',
+            position: defuseLoc,
             player_id: defuser.id,
-            player_name: `${defuser.firstName} "${defuser.gamerTag}" ${defuser.lastName}`,
-            location: [Math.floor(Math.random() * 1000), Math.floor(Math.random() * 1000)],
+            details: { description: `${defuser.firstName} "${defuser.gamerTag}" ${defuser.lastName} successfully defuses the spike!` }
           });
         }
       } else {
         // Spike detonation
         events.push({
           timestamp: 90,
-          type: 'comment',
-          description: `The spike detonates! Round goes to the attacking team.`,
+          event_type: 'comment',
+          position: [0, 0],
+          player_id: '',
+          details: { description: `The spike detonates! Round goes to the attacking team.` }
         });
       }
     }
@@ -112,10 +128,12 @@ const generateMockEvents = (roundNumber: number, attackingTeam: 'team_a' | 'team
     // No plant - random end of round based on eliminations
     events.push({
       timestamp: 75 + Math.random() * 15,
-      type: 'comment',
-      description: Math.random() > 0.5 
+      event_type: 'comment',
+      position: [0, 0],
+      player_id: '',
+      details: { description: Math.random() > 0.5 
         ? `All attackers eliminated! Defense wins the round.`
-        : `All defenders eliminated! Attackers take the round.`,
+        : `All defenders eliminated! Attackers take the round.` }
     });
   }
   
@@ -221,11 +239,11 @@ const LiveMatchSimulation: React.FC<{
     // Convert API events to the format expected by RoundSimulation
     const transformedEvents = apiEvents.map(event => ({
       timestamp: event.timestamp,
-      type: event.type as 'kill' | 'ability' | 'plant' | 'defuse' | 'comment',
+      type: event.event_type as 'kill' | 'ability' | 'plant' | 'defuse' | 'comment',
       playerId: event.player_id,
       targetId: event.target_id,
-      comment: event.description,
-      position: event.location
+      comment: event.details?.description,
+      position: event.position
     }));
     
     return {
