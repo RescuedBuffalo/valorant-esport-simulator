@@ -116,6 +116,7 @@ class MatchEngine:
         """Initialize the match engine."""
         # Initialize weapons
         self.current_match: Optional[SimMatch] = None
+        self.current_side = 'attack_a'
         self.round_number = 0
         self.score = {"team_a": 0, "team_b": 0}
         self.economy = {"team_a": 4000, "team_b": 4000}
