@@ -8,6 +8,8 @@ from .simulation.player_generator import PlayerGenerator
 from .simulation.match_engine import MatchEngine
 from .simulation.weapons import WeaponFactory
 from .simulation.maps import map_collection
+from .repositories.team_repository import TeamRepository
+from .db.session import SessionLocal
 
 class ValorantSim:
     def __init__(self):
@@ -45,25 +47,75 @@ class ValorantSim:
                 
     def simulate_match(self, team_a_name: str, team_b_name: str) -> Dict:
         """Simulate a match between two teams."""
-        if team_a_name not in self.teams or team_b_name not in self.teams:
-            raise ValueError("Team not found!")
+        # Use database teams instead of in-memory teams
+        with SessionLocal() as db:
+            # Try to find teams by ID first, then by name
+            team_a_db = TeamRepository.get_team_by_id(db, team_a_name)
+            if not team_a_db:
+                team_a_db = TeamRepository.get_team_by_name(db, team_a_name)
+                
+            team_b_db = TeamRepository.get_team_by_id(db, team_b_name)
+            if not team_b_db:
+                team_b_db = TeamRepository.get_team_by_name(db, team_b_name)
             
-        map_name = random.choice(self.maps)
-        
-        match_result = self.match_engine.simulate_match(
-            self.teams[team_a_name]["roster"],
-            self.teams[team_b_name]["roster"],
-            map_name
-        )
-        
-        # Update team stats
-        winner = team_a_name if match_result["score"]["team_a"] > match_result["score"]["team_b"] else team_b_name
-        loser = team_b_name if winner == team_a_name else team_a_name
-        
-        self.teams[winner]["stats"]["wins"] += 1
-        self.teams[loser]["stats"]["losses"] += 1
-        
-        return match_result
+            if not team_a_db or not team_b_db:
+                raise ValueError("One or both teams not found in database")
+            
+            # Get players for both teams
+            team_a_players = TeamRepository.get_team_players(db, team_a_db.id)
+            team_b_players = TeamRepository.get_team_players(db, team_b_db.id)
+            
+            # Convert players to match engine format
+            team_a_roster = self._transform_players_for_engine(team_a_players)
+            team_b_roster = self._transform_players_for_engine(team_b_players)
+            
+            map_name = random.choice(self.maps)
+            
+            match_result = self.match_engine.simulate_match(
+                team_a_roster,
+                team_b_roster,
+                map_name
+            )
+            
+            # Update team stats
+            winner = team_a_name if match_result["score"]["team_a"] > match_result["score"]["team_b"] else team_b_name
+            loser = team_b_name if winner == team_a_name else team_a_name
+            
+            # In-memory update for compatibility
+            if team_a_name in self.teams:
+                self.teams[winner]["stats"]["wins"] += 1
+            if team_b_name in self.teams:
+                self.teams[loser]["stats"]["losses"] += 1
+            
+            return match_result
+    
+    def _transform_players_for_engine(self, players) -> List[Dict]:
+        """Transform player data from database format to match engine format."""
+        engine_players = []
+        for player in players:
+            player_dict = {
+                'id': player.id,
+                'firstName': player.first_name,
+                'lastName': player.last_name,
+                'gamerTag': player.gamer_tag,
+                'age': player.age,
+                'nationality': player.nationality,
+                'region': player.region,
+                'primaryRole': player.primary_role,
+                'salary': player.salary,
+                'coreStats': {
+                    'aim': player.aim,
+                    'gameSense': player.game_sense,
+                    'movement': player.movement,
+                    'utilityUsage': player.utility_usage,
+                    'communication': player.communication,
+                    'clutch': player.clutch
+                },
+                'roleProficiencies': player.role_proficiencies,
+                'agentProficiencies': player.agent_proficiencies
+            }
+            engine_players.append(player_dict)
+        return engine_players
 
     def get_teams(self) -> List[Dict]:
         """Get all teams."""
