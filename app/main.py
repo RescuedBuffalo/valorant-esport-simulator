@@ -122,7 +122,7 @@ async def root():
     }
 
 # Import and include routers
-from app.api.v1 import team, player, match, tournament, league, metrics
+from app.api.v1 import team, player, match, tournament, league, metrics, maps
 
 app.include_router(team.router, prefix="/api/v1/teams", tags=["teams"])
 app.include_router(player.router, prefix="/api/v1/players", tags=["players"])
@@ -130,7 +130,82 @@ app.include_router(match.router, prefix="/api/v1/matches", tags=["matches"])
 app.include_router(tournament.router, prefix="/api/v1/tournaments", tags=["tournaments"])
 app.include_router(league.router, prefix="/api/v1", tags=["leagues"])
 app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
+app.include_router(maps.router, prefix="/api/v1/maps", tags=["maps"])
 
+# For backward compatibility with the old API endpoints
+from pydantic import BaseModel
+from typing import Optional, Dict
+
+class TeamCreate(BaseModel):
+    name: str
+    region: Optional[str] = None
+
+class MatchCreate(BaseModel):
+    team_a: str
+    team_b: str
+    map_name: Optional[str] = None
+
+# Initialize ValorantSim for simple API
+from .game import ValorantSim
+game_sim = ValorantSim()
+
+# Legacy compatibility endpoints for the old API
+@app.get("/")
+async def alt_root():
+    """Health check endpoint (compatibility with old API)."""
+    return {"status": "ok", "message": "Valorant Simulation API is running"}
+
+@app.post("/teams/")
+async def alt_create_team(team_data: TeamCreate):
+    """Create a new team (compatibility with old API)."""
+    try:
+        team = game_sim.generate_new_team(team_data.name, team_data.region)
+        return {"status": "success", "team": team}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/teams/")
+async def alt_list_teams():
+    """List all teams (compatibility with old API)."""
+    return {"teams": game_sim.teams}
+
+@app.get("/teams/{team_name}")
+async def alt_get_team(team_name: str):
+    """Get team details (compatibility with old API)."""
+    if team_name not in game_sim.teams:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return {"team": game_sim.teams[team_name]}
+
+@app.post("/matches/")
+async def alt_simulate_match(match_data: MatchCreate):
+    """Simulate a match between two teams (compatibility with old API)."""
+    if match_data.team_a not in game_sim.teams or match_data.team_b not in game_sim.teams:
+        raise HTTPException(status_code=404, detail="One or both teams not found")
+    
+    if match_data.team_a == match_data.team_b:
+        raise HTTPException(status_code=400, detail="Cannot simulate match between same team")
+    
+    try:
+        match_result = game_sim.simulate_match(match_data.team_a, match_data.team_b)
+        return {"status": "success", "result": match_result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/regions/")
+async def alt_get_regions():
+    """Get available regions (compatibility with old API)."""
+    return {
+        "regions": ["NA", "EU", "APAC", "BR", "LATAM"]
+    }
+
+@app.get("/maps/")
+async def alt_get_maps():
+    """Get available maps (compatibility with old API)."""
+    return {
+        "maps": game_sim.maps
+    }
+
+# Original API v1 specific endpoints
 @app.get("/api/v1/regions")
 async def get_regions():
     """Get available regions."""

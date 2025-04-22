@@ -428,7 +428,7 @@ class MatchEngine:
         map_data = RoundMapData(map_name=self.current_match.map_name)
         
         # Simulate ability usage
-        if self.round_number > 0:  # Skip first round for ability usage
+        if self.round_number > 0:  # Skip first round for ability usage:
             # Ability usage for Team A
             for player in self.current_match.team_a:
                 player_id = player["id"]
