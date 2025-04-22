@@ -23,6 +23,9 @@ import {
   Tooltip,
   Alert,
   LinearProgress,
+  Tabs,
+  Tab,
+  TabPanel,
 } from '@mui/material';
 import PauseIcon from '@mui/icons-material/Pause';
 import { recordUserInteraction } from '../utils/metrics';
@@ -30,6 +33,8 @@ import { AppDispatch, RootState } from '../store';
 import TeamSelector from '../components/TeamSelector';
 import { agents, Agent } from '../data/agents';
 import { simulateMatchThunk } from '../store/thunks/gameThunks';
+import RoundViewer from '../components/RoundViewer';
+import RoundPlayByPlay from '../components/RoundPlayByPlay';
 
 // Define match phases
 enum MatchPhase {
@@ -134,6 +139,10 @@ const Battlegrounds: React.FC = () => {
   const [matchResult, setMatchResult] = useState<any>(null);
   const [roundHistory, setRoundHistory] = useState<any[]>([]);
   const [score, setScore] = useState<{userTeam: number, opponentTeam: number}>({userTeam: 0, opponentTeam: 0});
+  // New state for match result tabs
+  const [resultTabIndex, setResultTabIndex] = useState(0);
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
+  const [showRoundDetails, setShowRoundDetails] = useState(false);
   
   // Get players for the selected teams
   const userTeamPlayers = React.useMemo(() => {
@@ -248,7 +257,27 @@ const Battlegrounds: React.FC = () => {
       agent_selections: agentSelections
     })).then((result) => {
       if (result.meta.requestStatus === 'fulfilled') {
+        // Store match result data
         setMatchResult(result.payload);
+        
+        // Set round history for round viewer
+        if (result.payload.rounds) {
+          setRoundHistory(result.payload.rounds);
+        }
+        
+        // Set final score
+        setScore({
+          userTeam: result.payload.score?.team_a || 0,
+          opponentTeam: result.payload.score?.team_b || 0
+        });
+        
+        // If this is the first round, select it by default
+        if (result.payload.rounds && result.payload.rounds.length > 0) {
+          setSelectedRound(0);
+          // Set tab to round history
+          setResultTabIndex(1);
+        }
+        
         setCurrentPhase(MatchPhase.MATCH_COMPLETE);
       } else {
         setError('Failed to simulate match');
@@ -594,44 +623,187 @@ const Battlegrounds: React.FC = () => {
             <Typography variant="h5" gutterBottom>Match Complete</Typography>
             
             {matchResult && (
-              <Paper sx={{ p: 3, mb: 3 }}>
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  my: 3,
-                  px: 4
-                }}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h6">{userTeam}</Typography>
-                    <Typography variant="h3" color="primary">
-                      {matchResult.score?.team_a || 0}
-                    </Typography>
+              <>
+                <Paper sx={{ p: 3, mb: 3 }}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    my: 3,
+                    px: 4
+                  }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6">{userTeam}</Typography>
+                      <Typography variant="h3" color="primary">
+                        {matchResult.score?.team_a || 0}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h4" color="text.secondary">VS</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        {selectedMap}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6">{opponentTeam}</Typography>
+                      <Typography variant="h3" color="primary">
+                        {matchResult.score?.team_b || 0}
+                      </Typography>
+                    </Box>
                   </Box>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="text.secondary">VS</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      {selectedMap}
-                    </Typography>
+                  
+                  {matchResult.mvp && (
+                    <Box sx={{ textAlign: 'center', mt: 2 }}>
+                      <Typography variant="subtitle1">
+                        MVP: {matchResult.mvp.player_name || "Unknown"}
+                      </Typography>
+                      <Typography variant="body2">
+                        {matchResult.mvp.kills || 0} Kills, {matchResult.mvp.assists || 0} Assists, {matchResult.mvp.deaths || 0} Deaths
+                      </Typography>
+                    </Box>
+                  )}
+                </Paper>
+                
+                <Paper sx={{ mb: 3 }}>
+                  <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    <Tabs 
+                      value={resultTabIndex} 
+                      onChange={handleResultTabChange}
+                      variant="fullWidth"
+                    >
+                      <Tab label="Match Summary" />
+                      <Tab label="Round History" />
+                      {selectedRound !== null && (
+                        <Tab label={`Round ${selectedRound + 1} Details`} />
+                      )}
+                    </Tabs>
                   </Box>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h6">{opponentTeam}</Typography>
-                    <Typography variant="h3" color="primary">
-                      {matchResult.score?.team_b || 0}
-                    </Typography>
-                  </Box>
+                  
+                  <TabPanel value={resultTabIndex} index={0}>
+                    <Typography variant="h6" gutterBottom>Match Summary</Typography>
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={6}>
+                        <Card>
+                          <CardContent>
+                            <Typography variant="subtitle1" gutterBottom>
+                              Match Details
+                            </Typography>
+                            <Divider sx={{ mb: 2 }} />
+                            <Typography variant="body2">
+                              Duration: {matchResult.duration || "Unknown"}
+                            </Typography>
+                            <Typography variant="body2">
+                              Map: {matchResult.map || selectedMap}
+                            </Typography>
+                            <Typography variant="body2">
+                              Rounds Played: {matchResult.rounds?.length || 0}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      
+                      <Grid item xs={12} md={6}>
+                        <Card>
+                          <CardContent>
+                            <Typography variant="subtitle1" gutterBottom>
+                              Team Performance
+                            </Typography>
+                            <Divider sx={{ mb: 2 }} />
+                            <Typography variant="body2">
+                              {userTeam} Score: {matchResult.score?.team_a || 0}
+                            </Typography>
+                            <Typography variant="body2">
+                              {opponentTeam} Score: {matchResult.score?.team_b || 0}
+                            </Typography>
+                            <Typography variant="body2">
+                              Winner: {
+                                (matchResult.score?.team_a || 0) > (matchResult.score?.team_b || 0) 
+                                  ? userTeam 
+                                  : opponentTeam
+                              }
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    </Grid>
+                  </TabPanel>
+                  
+                  <TabPanel value={resultTabIndex} index={1}>
+                    <Typography variant="h6" gutterBottom>Round History</Typography>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Click on a round to view detailed information
+                      </Typography>
+                    </Box>
+                    
+                    <Grid container spacing={2}>
+                      {matchResult.rounds && matchResult.rounds.map((round: any, index: number) => (
+                        <Grid item xs={12} key={index}>
+                          <RoundViewer 
+                            roundData={round}
+                            teamAName={userTeam}
+                            teamBName={opponentTeam}
+                            mapName={selectedMap}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </TabPanel>
+                  
+                  {selectedRound !== null && matchResult.rounds && matchResult.rounds[selectedRound] && (
+                    <TabPanel value={resultTabIndex} index={2}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="h6">
+                          Round {selectedRound + 1} Play-by-Play
+                        </Typography>
+                        <Button 
+                          variant="outlined" 
+                          size="small"
+                          onClick={() => setResultTabIndex(1)}
+                        >
+                          Back to Rounds
+                        </Button>
+                      </Box>
+                      
+                      <Paper sx={{ p: 2, mb: 3 }}>
+                        <RoundViewer 
+                          roundData={matchResult.rounds[selectedRound]}
+                          teamAName={userTeam}
+                          teamBName={opponentTeam}
+                          mapName={selectedMap}
+                        />
+                      </Paper>
+                      
+                      {/* Add RoundPlayByPlay component if available */}
+                      {matchResult.rounds[selectedRound].events && (
+                        <Box sx={{ height: '500px', overflow: 'auto' }}>
+                          <RoundPlayByPlay
+                            teamA={userTeam}
+                            teamB={opponentTeam}
+                            teamAId="team_a"
+                            teamBId="team_b"
+                            mapName={selectedMap}
+                            roundNumber={(selectedRound + 1).toString()}
+                            events={matchResult.rounds[selectedRound].events}
+                            autoplay={true}
+                            speed="normal"
+                          />
+                        </Box>
+                      )}
+                    </TabPanel>
+                  )}
+                </Paper>
+                
+                <Box display="flex" justifyContent="center" mt={2}>
+                  <Button 
+                    variant="contained" 
+                    onClick={() => navigate('/battlegrounds')}
+                  >
+                    Play Again
+                  </Button>
                 </Box>
-              </Paper>
+              </>
             )}
-            
-            <Box display="flex" justifyContent="center" mt={2}>
-              <Button 
-                variant="contained" 
-                onClick={() => navigate('/battlegrounds')}
-              >
-                Play Again
-              </Button>
-            </Box>
           </Box>
         );
     }

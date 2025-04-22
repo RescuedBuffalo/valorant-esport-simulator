@@ -19,56 +19,83 @@ export interface RoundSimulationRequest {
 }
 
 export interface RoundEvent {
-  type: string;
-  description: string;
+  event_type: string;
   timestamp: number;
-  player_id?: string;
-  player_name?: string;
+  position: [number, number];
+  player_id: string;
   target_id?: string;
-  target_name?: string;
-  location?: [number, number];
-  details?: Record<string, any>;
+  details: {
+    [key: string]: any;
+  };
+}
+
+export interface RoundData {
+  round_number: number;
+  winner: string;
+  events?: RoundEvent[];
+  economy: { 
+    team_a: number; 
+    team_b: number;
+  };
+  loss_streaks: { 
+    team_a: number; 
+    team_b: number;
+  };
+  map_data?: any;
+  summary?: string;
+  notes?: string[];
+  spike_planted?: boolean;
+  att_strategy?: string;
+  def_strategy?: string;
+  player_loadouts?: {
+    [playerId: string]: {
+      weapon: string;
+      armor: boolean;
+      ability_used: boolean;
+      ability_impact: string;
+    }
+  };
+}
+
+export interface TeamPlayerInfo {
+  id: string;
+  firstName: string;
+  lastName: string;
+  gamerTag: string;
+  agent: string;
+}
+
+export interface TeamInfo {
+  id: string;
+  name: string;
+  logo?: string;
+  players: TeamPlayerInfo[];
 }
 
 export interface RoundSimulationResponse {
-  round_data: {
-    round_number: number;
-    winner: string;
-    events: RoundEvent[];
-    economy: {
-      team_a: number;
-      team_b: number;
-    };
-    loss_streaks: {
-      team_a: number;
-      team_b: number;
-    };
-    map_data?: any;
+  round_data: RoundData;
+  team_info?: {
+    team_a: TeamInfo;
+    team_b: TeamInfo;
   };
-  team_info: {
-    team_a: {
-      id: string;
-      name: string;
-      logo?: string;
-      players: Array<{
-        id: string;
-        firstName: string;
-        lastName: string;
-        gamerTag: string;
-        agent: string;
-      }>;
-    };
-    team_b: {
-      id: string;
-      name: string;
-      logo?: string;
-      players: Array<{
-        id: string;
-        firstName: string;
-        lastName: string;
-        gamerTag: string;
-        agent: string;
-      }>;
-    };
+}
+
+export interface MatchResult {
+  match_id: string;
+  score: {
+    team_a: number;
+    team_b: number;
   };
+  duration: string;
+  map: string;
+  mvp: {
+    player_id: string;
+    kills: number;
+    deaths: number;
+    assists: number;
+  };
+  rounds: RoundData[];
+  team_a_name?: string;
+  team_b_name?: string;
+  economy_logs?: any[];
 } 
