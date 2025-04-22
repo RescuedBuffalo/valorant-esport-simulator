@@ -91,6 +91,152 @@ const formatTime = (seconds: number): string => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 };
 
+// Generate round events from the round data
+const generateEventsFromRoundData = (data: RoundSimulationResponse): RoundEvent[] => {
+  const events: RoundEvent[] = [];
+  const roundData = data.round_data;
+  const teamAInfo = data.team_info?.team_a;
+  const teamBInfo = data.team_info?.team_b;
+  
+  // Helper to get random player from a team
+  const getRandomPlayer = (team: 'team_a' | 'team_b') => {
+    const players = team === 'team_a' ? teamAInfo?.players : teamBInfo?.players;
+    if (!players || players.length === 0) return null;
+    return players[Math.floor(Math.random() * players.length)];
+  };
+  
+  // Round start event
+  events.push({
+    event_type: 'comment',
+    timestamp: 5,
+    position: [0, 0],
+    player_id: '',
+    details: { message: `Round ${roundData.round_number + 1} begins!` }
+  });
+  
+  // Team strategies
+  if (roundData.att_strategy) {
+    events.push({
+      event_type: 'comment',
+      timestamp: 10,
+      position: [0, 0],
+      player_id: '',
+      details: { message: `Attackers strategy: ${roundData.att_strategy}` }
+    });
+  }
+  
+  if (roundData.def_strategy) {
+    events.push({
+      event_type: 'comment',
+      timestamp: 15,
+      position: [0, 0],
+      player_id: '',
+      details: { message: `Defenders strategy: ${roundData.def_strategy}` }
+    });
+  }
+  
+  // Add ability usage events for both teams
+  let timestamp = 20;
+  
+  // Process player loadouts for both teams
+  if (roundData.player_loadouts) {
+    // Team A player events
+    if ('team_a' in roundData.player_loadouts) {
+      const teamALoadouts = roundData.player_loadouts.team_a as Record<string, any>;
+      Object.entries(teamALoadouts).forEach(([playerId, loadout]) => {
+        if (loadout && loadout.ability_used) {
+          const player = teamAInfo?.players.find(p => p.id === playerId);
+          timestamp += Math.random() * 5;
+          
+          if (player) {
+            events.push({
+              event_type: 'ability',
+              timestamp,
+              position: [Math.random(), Math.random()],
+              player_id: playerId,
+              details: { 
+                message: `${player.gamerTag} uses an ability with ${loadout.ability_impact || 'neutral'} impact!`,
+                impact: loadout.ability_impact || 'neutral'
+              }
+            });
+          }
+        }
+      });
+    }
+    
+    // Team B player events
+    if ('team_b' in roundData.player_loadouts) {
+      const teamBLoadouts = roundData.player_loadouts.team_b as Record<string, any>;
+      Object.entries(teamBLoadouts).forEach(([playerId, loadout]) => {
+        if (loadout && loadout.ability_used) {
+          const player = teamBInfo?.players.find(p => p.id === playerId);
+          timestamp += Math.random() * 5;
+          
+          if (player) {
+            events.push({
+              event_type: 'ability',
+              timestamp,
+              position: [Math.random(), Math.random()],
+              player_id: playerId,
+              details: { 
+                message: `${player.gamerTag} uses an ability with ${loadout.ability_impact || 'neutral'} impact!`,
+                impact: loadout.ability_impact || 'neutral'
+              }
+            });
+          }
+        }
+      });
+    }
+  }
+  
+  // Add spike plant event if applicable
+  if (roundData.spike_planted) {
+    const planter = getRandomPlayer(roundData.winner === 'team_a' ? 'team_a' : 'team_b');
+    timestamp = 45 + Math.random() * 10;
+    
+    if (planter) {
+      events.push({
+        event_type: 'plant',
+        timestamp,
+        position: [Math.random(), Math.random()],
+        player_id: planter.id,
+        details: { 
+          message: `${planter.gamerTag} plants the spike!`,
+          site: Math.random() > 0.5 ? 'A' : 'B' 
+        }
+      });
+    }
+    
+    // Add defuse event if defenders won
+    if ((roundData.winner === 'team_a' && roundData.att_strategy === 'def_strategy') || 
+        (roundData.winner === 'team_b' && roundData.att_strategy !== 'def_strategy')) {
+      const defuser = getRandomPlayer(roundData.winner === 'team_a' ? 'team_a' : 'team_b');
+      
+      if (defuser) {
+        events.push({
+          event_type: 'defuse',
+          timestamp: timestamp + 15 + Math.random() * 10,
+          position: [Math.random(), Math.random()],
+          player_id: defuser.id,
+          details: { message: `${defuser.gamerTag} defuses the spike!` }
+        });
+      }
+    }
+  }
+  
+  // Add final round outcome
+  events.push({
+    event_type: 'comment',
+    timestamp: 85 + Math.random() * 10,
+    position: [0, 0],
+    player_id: '',
+    details: { message: roundData.summary || 'Round complete' }
+  });
+  
+  // Sort events by timestamp and return
+  return events.sort((a, b) => a.timestamp - b.timestamp);
+};
+
 const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
   teamA,
   teamB,
@@ -114,6 +260,7 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
   const [currentEventIndex, setCurrentEventIndex] = useState(-1);
   const [displayedEvents, setDisplayedEvents] = useState<RoundEvent[]>([]);
   const [roundTimeRemaining, setRoundTimeRemaining] = useState(100); // 100 seconds in a round
+  const [events, setEvents] = useState<RoundEvent[]>([]);
 
   // Get delay between events based on speed setting
   const getEventDelay = useCallback(() => {
@@ -184,16 +331,20 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
         const data: RoundSimulationResponse = await response.json();
         setRoundData(data);
         
+        // Generate events from round data since backend doesn't provide them
+        const generatedEvents = generateEventsFromRoundData(data);
+        setEvents(generatedEvents);
+        
         // Start with showing the first event if autoplay
-        if (autoplay) {
+        if (autoplay && generatedEvents.length > 0) {
           setCurrentEventIndex(0);
-          setDisplayedEvents([data.round_data.events[0]]);
+          setDisplayedEvents([generatedEvents[0]]);
         }
         
         // Record successful simulation
         recordUserInteraction('RoundPlayByPlay', 'simulation_success', {
           roundNumber,
-          eventCount: data.round_data.events.length,
+          eventCount: generatedEvents.length,
         });
       } catch (err) {
         console.error('Error fetching round data:', err);
@@ -214,36 +365,36 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
 
   // Process events based on current index and playing state
   useEffect(() => {
-    if (!isPlaying || !roundData || currentEventIndex >= roundData.round_data.events.length - 1) return;
+    if (!isPlaying || events.length === 0 || currentEventIndex >= events.length - 1) return;
     
     const timer = setTimeout(() => {
       // Move to next event
       const nextIndex = currentEventIndex + 1;
-      if (nextIndex < roundData.round_data.events.length) {
+      if (nextIndex < events.length) {
         setCurrentEventIndex(nextIndex);
-        setDisplayedEvents(prev => [...prev, roundData.round_data.events[nextIndex]]);
+        setDisplayedEvents(prev => [...prev, events[nextIndex]]);
         
         // Update round time based on event timestamp
-        const eventTime = roundData.round_data.events[nextIndex].timestamp;
+        const eventTime = events[nextIndex].timestamp;
         setRoundTimeRemaining(Math.max(0, 100 - eventTime));
       } else {
         // End of events, stop playing
         setIsPlaying(false);
-        if (onComplete) {
+        if (onComplete && roundData) {
           onComplete(roundData);
         }
       }
     }, getEventDelay());
     
     return () => clearTimeout(timer);
-  }, [isPlaying, currentEventIndex, roundData, getEventDelay, onComplete]);
+  }, [isPlaying, currentEventIndex, events, roundData, getEventDelay, onComplete]);
 
   // Handle play/pause button
   const handlePlayPause = () => {
     // If at the beginning and pressing play, show first event
-    if (currentEventIndex === -1 && !isPlaying && roundData) {
+    if (currentEventIndex === -1 && !isPlaying && events.length > 0) {
       setCurrentEventIndex(0);
-      setDisplayedEvents([roundData.round_data.events[0]]);
+      setDisplayedEvents([events[0]]);
     }
     setIsPlaying(prev => !prev);
     
@@ -253,21 +404,21 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
 
   // Handle skip to next event
   const handleNext = () => {
-    if (!roundData) return;
+    if (!roundData || events.length === 0) return;
     
-    const nextIndex = Math.min(currentEventIndex + 1, roundData.round_data.events.length - 1);
+    const nextIndex = Math.min(currentEventIndex + 1, events.length - 1);
     setCurrentEventIndex(nextIndex);
     
     // If this is the first event being shown
     if (currentEventIndex === -1) {
-      setDisplayedEvents([roundData.round_data.events[0]]);
+      setDisplayedEvents([events[0]]);
     } else if (nextIndex > currentEventIndex) {
-      setDisplayedEvents(prev => [...prev, roundData.round_data.events[nextIndex]]);
+      setDisplayedEvents(prev => [...prev, events[nextIndex]]);
     }
     
     // Update round time
-    if (roundData.round_data.events[nextIndex]) {
-      setRoundTimeRemaining(Math.max(0, 100 - roundData.round_data.events[nextIndex].timestamp));
+    if (events[nextIndex]) {
+      setRoundTimeRemaining(Math.max(0, 100 - events[nextIndex].timestamp));
     }
     
     recordUserInteraction('RoundPlayByPlay', 'next_event');
@@ -282,8 +433,8 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
     setDisplayedEvents(prev => prev.slice(0, prev.length - 1));
     
     // Update round time
-    if (roundData.round_data.events[prevIndex]) {
-      setRoundTimeRemaining(Math.max(0, 100 - roundData.round_data.events[prevIndex].timestamp));
+    if (events[prevIndex]) {
+      setRoundTimeRemaining(Math.max(0, 100 - events[prevIndex].timestamp));
     }
     
     recordUserInteraction('RoundPlayByPlay', 'previous_event');
@@ -291,10 +442,10 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
 
   // Handle skip to end
   const handleSkipToEnd = () => {
-    if (!roundData) return;
+    if (!roundData || events.length === 0) return;
     
-    setCurrentEventIndex(roundData.round_data.events.length - 1);
-    setDisplayedEvents(roundData.round_data.events);
+    setCurrentEventIndex(events.length - 1);
+    setDisplayedEvents(events);
     setRoundTimeRemaining(0);
     setIsPlaying(false);
     
@@ -366,7 +517,7 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
           </IconButton>
           <IconButton 
             onClick={handleNext} 
-            disabled={!roundData || currentEventIndex >= roundData.round_data.events.length - 1}
+            disabled={events.length === 0 || currentEventIndex >= events.length - 1}
           >
             <SkipNextIcon />
           </IconButton>
@@ -374,7 +525,7 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
             variant="outlined" 
             size="small" 
             onClick={handleSkipToEnd}
-            disabled={!roundData || currentEventIndex >= roundData.round_data.events.length - 1}
+            disabled={events.length === 0 || currentEventIndex >= events.length - 1}
             sx={{ ml: 1 }}
           >
             Skip to End
@@ -454,16 +605,16 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   bgcolor: 
-                    event.type === 'kill' ? 'error.main' :
-                    event.type === 'plant' ? 'warning.main' :
-                    event.type === 'defuse' ? 'success.main' :
-                    event.type === 'ability' ? 'secondary.main' : 'primary.main',
+                    event.event_type === 'kill' ? 'error.main' :
+                    event.event_type === 'plant' ? 'warning.main' :
+                    event.event_type === 'defuse' ? 'success.main' :
+                    event.event_type === 'ability' ? 'secondary.main' : 'primary.main',
                   color: 'white',
                   zIndex: 1,
                   my: 1
                 }}
               >
-                {getEventIcon(event.type)}
+                {getEventIcon(event.event_type)}
               </Box>
             </Box>
             
@@ -471,21 +622,21 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
             <Box sx={{ flex: 1, maxWidth: '350px' }}>
               <Card variant="outlined" sx={{ 
                 borderLeft: 4, 
-                borderColor: getEventColor(event.type) 
+                borderColor: getEventColor(event.event_type) 
               }}>
                 <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
                   <Typography variant="body1">
-                    {event.description}
+                    {event.details?.message}
                   </Typography>
-                  {event.player_name && (
+                  {event.player_id && (
                     <Typography variant="body2" color="text.secondary">
-                      Player: {event.player_name}
+                      Player ID: {event.player_id}
                     </Typography>
                   )}
                   {event.details && (
                     <Typography variant="body2" color="text.secondary">
-                      {Object.entries(event.details)
-                        .filter(([key]) => key !== 'position')
+                      {Object.entries(event.details || {})
+                        .filter(([key]) => key !== 'message')
                         .map(([key, value]) => `${key}: ${value}`)
                         .join(' | ')}
                     </Typography>

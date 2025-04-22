@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import logging
 import traceback
-from app.simulation.match_engine import MatchEngine
+from app.simulation.match_engine import MatchEngine, SimMatch
 from app.db.session import get_db
 from app.repositories.match_repository import MatchRepository
 from app.repositories.team_repository import TeamRepository
@@ -337,7 +337,7 @@ async def simulate_round_with_events(request: RoundSimulationRequest, db: Sessio
         match_engine = MatchEngine()
         
         # Set up the match_engine state for this specific round
-        match_engine.current_match = match_engine.SimMatch(
+        match_engine.current_match = SimMatch(
             team_a=team_a_players, 
             team_b=team_b_players, 
             map_name=request.map_name
@@ -370,8 +370,8 @@ async def simulate_round_with_events(request: RoundSimulationRequest, db: Sessio
             # Generate agent selections
             match_engine.player_agents = match_engine._select_agents_for_teams(team_a_players, team_b_players)
         
-        # Simulate the round with detailed events
-        round_result = match_engine._simulate_round_with_events()
+        # Simulate the round (detailed play-by-play events not supported here)
+        round_result = match_engine._simulate_round()
         
         # Prepare response with additional team information
         response = {

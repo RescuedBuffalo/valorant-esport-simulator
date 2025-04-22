@@ -25,7 +25,6 @@ import {
   LinearProgress,
   Tabs,
   Tab,
-  TabPanel,
 } from '@mui/material';
 import PauseIcon from '@mui/icons-material/Pause';
 import { recordUserInteraction } from '../utils/metrics';
@@ -33,7 +32,6 @@ import { AppDispatch, RootState } from '../store';
 import TeamSelector from '../components/TeamSelector';
 import { agents, Agent } from '../data/agents';
 import { simulateMatchThunk } from '../store/thunks/gameThunks';
-import RoundViewer from '../components/RoundViewer';
 import RoundPlayByPlay from '../components/RoundPlayByPlay';
 
 // Define match phases
@@ -117,6 +115,42 @@ const AVAILABLE_MAPS: GameMap[] = [
     image: 'https://via.placeholder.com/300x150/1A1A1A/FFFFFF?text=Lotus',
   },
 ];
+
+// TabPanel local definition (MUI does not export TabPanel)
+interface TabPanelProps { children?: React.ReactNode; value: number; index: number; }
+function TabPanel({ children, value, index, ...other }: TabPanelProps) {
+  return (
+    <div role="tabpanel" hidden={value !== index} {...other}>
+      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+    </div>
+  );
+}
+
+// RoundViewer component definition
+interface RoundViewerProps { roundData: any; teamAName: string; teamBName: string; mapName: string; }
+const RoundViewer: React.FC<RoundViewerProps> = ({ roundData, teamAName, teamBName, mapName }) => {
+  const [expanded, setExpanded] = useState(false);
+  const handleExpand = () => setExpanded(!expanded);
+  return (
+    <Card sx={{ mb: 2 }}>
+      <CardContent>
+        <Box display="flex" justifyContent="space-between">
+          <Typography variant="h6">Round {roundData.round_number + 1}</Typography>
+          <Typography>{roundData.winner === 'team_a' ? teamAName : teamBName}</Typography>
+        </Box>
+        <Typography variant="body2" sx={{ fontStyle: 'italic', mt: 1 }}>{roundData.summary}</Typography>
+        <Tabs value={expanded ? 1 : 0} onChange={(_, v) => setExpanded(v === 1)}>
+          <Tab label="Preview" />
+          <Tab label="Details" />
+        </Tabs>
+        <TabPanel value={expanded ? 1 : 0} index={1}>
+          <Typography>Economy: {teamAName} ${roundData.economy.team_a} | {teamBName} ${roundData.economy.team_b}</Typography>
+          {/* more details as needed */}
+        </TabPanel>
+      </CardContent>
+    </Card>
+  );
+};
 
 const Battlegrounds: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -255,7 +289,7 @@ const Battlegrounds: React.FC = () => {
       team_b: opponentTeam,
       map_name: selectedMap,
       agent_selections: agentSelections
-    })).then((result) => {
+    })).then((result: any) => {
       if (result.meta.requestStatus === 'fulfilled') {
         // Store match result data
         setMatchResult(result.payload);
@@ -313,6 +347,11 @@ const Battlegrounds: React.FC = () => {
         });
       }, 1000);
     }
+  };
+  
+  // Handle result tab change
+  const handleResultTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setResultTabIndex(newValue);
   };
   
   // Render the current phase of the match
@@ -766,30 +805,17 @@ const Battlegrounds: React.FC = () => {
                       </Box>
                       
                       <Paper sx={{ p: 2, mb: 3 }}>
-                        <RoundViewer 
-                          roundData={matchResult.rounds[selectedRound]}
-                          teamAName={userTeam}
-                          teamBName={opponentTeam}
+                        <RoundPlayByPlay
+                          teamA={userTeam}
+                          teamB={opponentTeam}
+                          teamAId="team_a"
+                          teamBId="team_b"
                           mapName={selectedMap}
+                          roundNumber={(selectedRound + 1).toString()}
+                          autoplay
+                          speed="normal"
                         />
                       </Paper>
-                      
-                      {/* Add RoundPlayByPlay component if available */}
-                      {matchResult.rounds[selectedRound].events && (
-                        <Box sx={{ height: '500px', overflow: 'auto' }}>
-                          <RoundPlayByPlay
-                            teamA={userTeam}
-                            teamB={opponentTeam}
-                            teamAId="team_a"
-                            teamBId="team_b"
-                            mapName={selectedMap}
-                            roundNumber={(selectedRound + 1).toString()}
-                            events={matchResult.rounds[selectedRound].events}
-                            autoplay={true}
-                            speed="normal"
-                          />
-                        </Box>
-                      )}
                     </TabPanel>
                   )}
                 </Paper>
