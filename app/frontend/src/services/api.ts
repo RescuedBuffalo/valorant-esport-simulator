@@ -1,80 +1,9 @@
 import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { config, debugLog } from '../config';
+import { RoundSimulationRequest, RoundSimulationResponse } from '../types/api.types';
 
-// Types for round simulation
-export interface RoundSimulationRequest {
-  team_a: string;
-  team_b: string;
-  map_name: string;
-  round_number: number;
-  economy?: {
-    team_a: number;
-    team_b: number;
-  };
-  loss_streaks?: {
-    team_a: number;
-    team_b: number;
-  };
-  agent_selections?: {
-    team_a: Record<string, string>;
-    team_b: Record<string, string>;
-  };
-}
-
-export interface RoundEvent {
-  type: string;
-  description: string;
-  timestamp: number;
-  player_id?: string;
-  player_name?: string;
-  target_id?: string;
-  target_name?: string;
-  location?: [number, number];
-  details?: Record<string, any>;
-}
-
-export interface RoundSimulationResponse {
-  round_data: {
-    round_number: number;
-    winner: string;
-    events: RoundEvent[];
-    economy: {
-      team_a: number;
-      team_b: number;
-    };
-    loss_streaks: {
-      team_a: number;
-      team_b: number;
-    };
-    map_data?: any;
-  };
-  team_info: {
-    team_a: {
-      id: string;
-      name: string;
-      logo?: string;
-      players: Array<{
-        id: string;
-        firstName: string;
-        lastName: string;
-        gamerTag: string;
-        agent: string;
-      }>;
-    };
-    team_b: {
-      id: string;
-      name: string;
-      logo?: string;
-      players: Array<{
-        id: string;
-        firstName: string;
-        lastName: string;
-        gamerTag: string;
-        agent: string;
-      }>;
-    };
-  };
-}
+// Re-export types for convenience
+export type { RoundSimulationRequest, RoundSimulationResponse, RoundEvent } from '../types/api.types';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -89,6 +18,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     debugLog('API Request:', config.method?.toUpperCase(), config.url);
+    debugLog('API Request URL:', `${config.baseURL}${config.url}`);
     return config;
   },
   (error) => {
@@ -106,8 +36,11 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response) {
       debugLog('API Error Response:', error.response.status, error.response.data);
+      debugLog('API Error URL:', error.config?.url);
+      debugLog('API Error Full URL:', `${error.config?.baseURL}${error.config?.url}`);
     } else if (error.request) {
       debugLog('API Error Request:', error.request);
+      debugLog('API Error Config:', error.config);
     } else {
       debugLog('API Error Message:', error.message);
     }
@@ -151,7 +84,24 @@ const ApiService = {
    * Simulates a single round with detailed events
    */
   simulateRound: (data: RoundSimulationRequest): Promise<RoundSimulationResponse> => {
-    return api.post<RoundSimulationResponse>('/api/v1/matches/simulate-round', data).then((response) => response.data);
+    console.log('Simulating round with data:', data);
+    console.log('API URL:', config.API_URL);
+    return api.post<RoundSimulationResponse>('/api/v1/matches/simulate-round', data)
+      .then((response) => {
+        console.log('Simulation successful, response:', response.data);
+        return response.data;
+      })
+      .catch((error) => {
+        console.error('Simulation error:', error);
+        if (error.response) {
+          console.error('Error response:', error.response.data);
+          console.error('Error status:', error.response.status);
+        }
+        if (error.config) {
+          console.error('Full URL:', `${error.config.baseURL}${error.config.url}`);
+        }
+        throw error;
+      });
   },
 };
 

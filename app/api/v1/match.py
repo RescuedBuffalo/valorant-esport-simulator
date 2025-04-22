@@ -296,15 +296,42 @@ async def simulate_round_with_events(request: RoundSimulationRequest, db: Sessio
         if not team_b_db:
             team_b_db = TeamRepository.get_team_by_name(db, request.team_b)
         
+        # Add more detailed logging for debugging
+        logger.info(f"Team A lookup result: {team_a_db}")
+        logger.info(f"Team B lookup result: {team_b_db}")
+        
         if not team_a_db:
-            raise HTTPException(status_code=404, detail=f"Team '{request.team_a}' not found")
+            error_msg = f"Team '{request.team_a}' not found"
+            logger.error(error_msg)
+            # Return a more descriptive error to help debugging
+            raise HTTPException(
+                status_code=404, 
+                detail={
+                    "message": error_msg,
+                    "team_id": request.team_a,
+                    "suggestions": "Check that the team ID is valid in the database or try using the team name instead."
+                }
+            )
             
         if not team_b_db:
-            raise HTTPException(status_code=404, detail=f"Team '{request.team_b}' not found")
+            error_msg = f"Team '{request.team_b}' not found"
+            logger.error(error_msg)
+            # Return a more descriptive error to help debugging
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "message": error_msg,
+                    "team_id": request.team_b,
+                    "suggestions": "Check that the team ID is valid in the database or try using the team name instead."
+                }
+            )
         
         # Get players for both teams
         team_a_players = transform_for_engine(TeamRepository.get_team_players(db, team_a_db.id))
         team_b_players = transform_for_engine(TeamRepository.get_team_players(db, team_b_db.id))
+        
+        logger.info(f"Team A players retrieved: {len(team_a_players)}")
+        logger.info(f"Team B players retrieved: {len(team_b_players)}")
         
         # Initialize match engine for round simulation
         match_engine = MatchEngine()
@@ -396,6 +423,12 @@ async def simulate_round_with_events(request: RoundSimulationRequest, db: Sessio
             status_code=400, 
             detail={
                 "message": f"Failed to simulate round: {str(e)}",
-                "error_type": str(type(e).__name__)
+                "error_type": str(type(e).__name__),
+                "request_data": {
+                    "team_a": request.team_a,
+                    "team_b": request.team_b,
+                    "round_number": request.round_number,
+                    "map_name": request.map_name
+                }
             }
         ) 

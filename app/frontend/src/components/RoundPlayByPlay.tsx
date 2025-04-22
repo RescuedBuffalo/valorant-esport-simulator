@@ -33,7 +33,7 @@ interface RoundPlayByPlayProps {
   teamAId: string;
   teamBId: string;
   mapName: string;
-  roundNumber: number;
+  roundNumber: string;
   economy?: {
     teamA: number;
     teamB: number;
@@ -143,7 +143,7 @@ const RoundPlayByPlay: React.FC<RoundPlayByPlayProps> = ({
           team_a: teamAId,
           team_b: teamBId,
           map_name: mapName,
-          round_number: roundNumber,
+          round_number: parseInt(roundNumber, 10),
         };
         
         // Add optional params if provided

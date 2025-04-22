@@ -16,7 +16,7 @@ cd "$SCRIPT_DIR/app/frontend" && npm install --legacy-peer-deps
 # Start the FastAPI backend
 echo "Starting backend server..."
 cd "$SCRIPT_DIR"
-PYTHONPATH=$SCRIPT_DIR uvicorn app.api.main:app --reload --port 8000 &
+PYTHONPATH=$SCRIPT_DIR uvicorn app.main:app --reload --port 8000 &
 BACKEND_PID=$!
 
 # Start the React frontend
