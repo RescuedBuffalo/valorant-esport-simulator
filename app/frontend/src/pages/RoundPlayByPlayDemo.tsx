@@ -16,6 +16,8 @@ import {
   SelectChangeEvent,
   CircularProgress,
   Alert,
+  Divider,
+  Chip,
 } from '@mui/material';
 import RoundPlayByPlay from '../components/RoundPlayByPlay';
 import ApiService from '../services/api';
@@ -42,12 +44,18 @@ interface TeamInfo {
   }>;
 }
 
+// Define a response type for the API call
+interface ApiResponse {
+  teams?: Team[];
+  [key: string]: any;
+}
+
 const RoundPlayByPlayDemo: React.FC = () => {
   const [isStarted, setIsStarted] = useState(false);
-  const [teamA, setTeamA] = useState('Team Liquid');
-  const [teamB, setTeamB] = useState('Sentinels');
-  const [teamAId, setTeamAId] = useState('550e8400-e29b-41d4-a716-446655440000');
-  const [teamBId, setTeamBId] = useState('550e8400-e29b-41d4-a716-446655440001');
+  const [teamA, setTeamA] = useState('');
+  const [teamB, setTeamB] = useState('');
+  const [teamAId, setTeamAId] = useState('');
+  const [teamBId, setTeamBId] = useState('');
   const [mapName, setMapName] = useState('Ascent');
   const [roundNumber, setRoundNumber] = useState(1);
   const [simulationSpeed, setSimulationSpeed] = useState<'slow' | 'normal' | 'fast'>('normal');
@@ -60,17 +68,9 @@ const RoundPlayByPlayDemo: React.FC = () => {
   const [roundEvents, setRoundEvents] = useState<RoundEvent[]>([]);
   const [teamInfo, setTeamInfo] = useState<{ team_a: TeamInfo; team_b: TeamInfo } | null>(null);
   const [simulationCompleted, setSimulationCompleted] = useState(false);
+  const [showStrategyDetails, setShowStrategyDetails] = useState(false);
 
-  // Mock team data
-  const mockTeams = [
-    { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Team Liquid', logo: '/assets/team-logos/liquid.png' },
-    { id: '550e8400-e29b-41d4-a716-446655440001', name: 'Sentinels', logo: '/assets/team-logos/sentinels.png' },
-    { id: '550e8400-e29b-41d4-a716-446655440002', name: 'Cloud9', logo: '/assets/team-logos/cloud9.png' },
-    { id: '550e8400-e29b-41d4-a716-446655440003', name: 'Fnatic', logo: '/assets/team-logos/fnatic.png' },
-    { id: '550e8400-e29b-41d4-a716-446655440004', name: 'G2 Esports', logo: '/assets/team-logos/g2.png' },
-  ];
-
-  // Mock map data
+  // Map data
   const maps = ['Ascent', 'Bind', 'Haven', 'Split', 'Icebox', 'Breeze', 'Fracture', 'Pearl', 'Lotus'];
 
   // Fetch teams on component mount
@@ -81,25 +81,35 @@ const RoundPlayByPlayDemo: React.FC = () => {
       
       try {
         // Using ApiService.get to fetch teams
-        const fetchedTeams = await ApiService.get<Team[]>('/api/v1/teams');
+        const response = await ApiService.get<ApiResponse | Team[]>('/api/v1/teams');
+        
+        // Check if response has teams property or is an array directly
+        let fetchedTeams: Team[] = [];
+        
+        if (Array.isArray(response)) {
+          fetchedTeams = response;
+        } else if (response && typeof response === 'object' && 'teams' in response) {
+          fetchedTeams = response.teams as Team[];
+        }
+        
         // Ensure teams is always an array
-        if (Array.isArray(fetchedTeams)) {
+        if (Array.isArray(fetchedTeams) && fetchedTeams.length > 0) {
           setTeams(fetchedTeams);
           
           // Set default teams if available
           if (fetchedTeams.length >= 2) {
             setTeamAId(fetchedTeams[0].id);
+            setTeamA(fetchedTeams[0].name);
             setTeamBId(fetchedTeams[1].id);
+            setTeamB(fetchedTeams[1].name);
           }
         } else {
-          console.error('API returned non-array data for teams:', fetchedTeams);
-          setTeams(mockTeams);
+          console.error('API returned empty or invalid teams data:', fetchedTeams);
+          setError('No teams found in the database. Please create teams first.');
         }
       } catch (err: any) {
         console.error('Error fetching teams:', err);
-        setError('Failed to load teams. Using mock data instead.');
-        // Use mock teams as fallback
-        setTeams(mockTeams);
+        setError('Failed to load teams from database. Please check the API connection.');
       } finally {
         setLoading(false);
       }
@@ -153,13 +163,15 @@ const RoundPlayByPlayDemo: React.FC = () => {
     setSimResult(result);
     recordUserInteraction('RoundPlayByPlayDemo', 'simulation_complete', {
       winner: result.round_data.winner,
-      eventCount: result.round_data.events.length
+      eventCount: result.round_data.events ? result.round_data.events.length : 0
     });
   };
 
   const handleReset = () => {
     setIsStarted(false);
     setSimResult(null);
+    setSimulationCompleted(false);
+    setShowStrategyDetails(false);
     recordUserInteraction('RoundPlayByPlayDemo', 'reset_simulation');
   };
 
@@ -176,36 +188,24 @@ const RoundPlayByPlayDemo: React.FC = () => {
     try {
       console.log(`Simulating round ${roundNumber} between team ${teamAId} and team ${teamBId} on ${mapName}`);
       
-      let result;
-      
-      try {
-        // Try to use the real API
-        result = await ApiService.simulateRound({
-          team_a: teamAId,
-          team_b: teamBId,
-          round_number: roundNumber,
-          map_name: mapName
-        });
-      } catch (apiError) {
-        console.error('API error, using mock data:', apiError);
-        
-        // Fall back to mock data if the API fails
-        result = generateMockSimulationResponse(
-          teamAId, 
-          teamBId, 
-          roundNumber, 
-          mapName,
-          // Find team details from our local state
-          teams.find(t => t.id === teamAId)?.name || 'Team A',
-          teams.find(t => t.id === teamBId)?.name || 'Team B'
-        );
-      }
+      // Use the API to simulate a round
+      const result = await ApiService.simulateRound({
+        team_a: teamAId,
+        team_b: teamBId,
+        round_number: roundNumber,
+        map_name: mapName
+      });
       
       console.log('Simulation result:', result);
       
-      if (result.round_data && result.team_info) {
-        setRoundEvents(result.round_data.events || []);
-        setTeamInfo(result.team_info);
+      if (result.round_data) {
+        setSimResult(result);
+        if (result.round_data.events) {
+          setRoundEvents(result.round_data.events);
+        }
+        if (result.team_info) {
+          setTeamInfo(result.team_info);
+        }
         setSimulationCompleted(true);
       } else {
         setSimulationError('Invalid simulation result format');
@@ -230,149 +230,80 @@ const RoundPlayByPlayDemo: React.FC = () => {
     }
   };
 
-  // Generate mock response data for simulation when API is unavailable
-  const generateMockSimulationResponse = (
-    teamAId: string, 
-    teamBId: string, 
-    roundNumber: number, 
-    mapName: string,
-    teamAName: string,
-    teamBName: string
-  ): RoundSimulationResponse => {
-    // Set winner randomly
-    const winner = Math.random() > 0.5 ? 'team_a' : 'team_b';
-    const isAttackingTeamA = roundNumber <= 12;
-
-    // Generate events
-    const events: RoundEvent[] = [
-      {
-        type: 'round_start',
-        description: `Round ${roundNumber} starts. ${isAttackingTeamA ? teamAName : teamBName} on attack.`,
-        timestamp: 0,
-      },
-      {
-        type: 'strategy',
-        description: `${isAttackingTeamA ? teamAName : teamBName} decides to execute a strategy on site A.`,
-        timestamp: 5,
-      }
-    ];
-
-    // Add random events
-    for (let i = 0; i < 5 + Math.floor(Math.random() * 10); i++) {
-      const eventTypes = ['movement', 'ability', 'kill', 'plant', 'defuse'];
-      const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-      const timestamp = 10 + i * 10 + Math.floor(Math.random() * 5);
-      
-      if (eventType === 'kill') {
-        const isTeamAKill = Math.random() > 0.5;
-        events.push({
-          type: 'kill',
-          description: `${isTeamAKill ? 'Player from ' + teamAName : 'Player from ' + teamBName} eliminates an opponent.`,
-          timestamp,
-          player_name: `Player from ${isTeamAKill ? teamAName : teamBName}`,
-          target_name: `Player from ${isTeamAKill ? teamBName : teamAName}`,
-        });
-      } else if (eventType === 'plant' && timestamp > 30) {
-        events.push({
-          type: 'plant',
-          description: `Spike planted by ${isAttackingTeamA ? teamAName : teamBName}.`,
-          timestamp,
-          player_name: `Player from ${isAttackingTeamA ? teamAName : teamBName}`,
-        });
-      } else if (eventType === 'defuse' && timestamp > 60 && events.some(e => e.type === 'plant')) {
-        events.push({
-          type: 'defuse',
-          description: `Spike defused by ${isAttackingTeamA ? teamBName : teamAName}.`,
-          timestamp,
-          player_name: `Player from ${isAttackingTeamA ? teamBName : teamAName}`,
-        });
-      } else {
-        events.push({
-          type: eventType,
-          description: `A ${eventType} action occurred.`,
-          timestamp,
-        });
-      }
-    }
-
-    // Add round end event
-    events.push({
-      type: 'round_end',
-      description: `Round ends. ${winner === 'team_a' ? teamAName : teamBName} wins the round.`,
-      timestamp: 95,
-    });
-
-    // Sort events by timestamp
-    events.sort((a, b) => a.timestamp - b.timestamp);
-
-    // Create a mock player
-    const createMockPlayers = (team: string) => [
-      {
-        id: `player1-${team}`,
-        firstName: 'John',
-        lastName: 'Doe',
-        gamerTag: 'Pro' + team.substring(0, 1).toUpperCase(),
-        agent: team === 'team_a' ? 'Jett' : 'Phoenix',
-      },
-      {
-        id: `player2-${team}`,
-        firstName: 'Jane',
-        lastName: 'Smith',
-        gamerTag: 'Elite' + team.substring(0, 1).toUpperCase(),
-        agent: team === 'team_a' ? 'Sage' : 'Omen',
-      },
-      {
-        id: `player3-${team}`,
-        firstName: 'Bob',
-        lastName: 'Johnson',
-        gamerTag: 'Ace' + team.substring(0, 1).toUpperCase(),
-        agent: team === 'team_a' ? 'Sova' : 'Viper',
-      },
-      {
-        id: `player4-${team}`,
-        firstName: 'Alice',
-        lastName: 'Brown',
-        gamerTag: 'Top' + team.substring(0, 1).toUpperCase(),
-        agent: team === 'team_a' ? 'Reyna' : 'Killjoy',
-      },
-      {
-        id: `player5-${team}`,
-        firstName: 'Charlie',
-        lastName: 'Wilson',
-        gamerTag: 'Beast' + team.substring(0, 1).toUpperCase(),
-        agent: team === 'team_a' ? 'Brimstone' : 'Cypher',
-      },
-    ];
-
-    return {
-      round_data: {
-        round_number: roundNumber,
-        winner: winner,
-        events: events,
-        economy: {
-          team_a: 4000 - Math.floor(Math.random() * 2000),
-          team_b: 4000 - Math.floor(Math.random() * 2000),
-        },
-        loss_streaks: {
-          team_a: winner === 'team_a' ? 0 : 1,
-          team_b: winner === 'team_b' ? 0 : 1,
-        },
-      },
-      team_info: {
-        team_a: {
-          id: teamAId,
-          name: teamAName,
-          logo: '/assets/team-logos/liquid.png',
-          players: createMockPlayers('team_a'),
-        },
-        team_b: {
-          id: teamBId,
-          name: teamBName,
-          logo: '/assets/team-logos/sentinels.png',
-          players: createMockPlayers('team_b'),
-        },
-      },
+  const renderStrategyDetails = () => {
+    if (!simResult || !simResult.round_data) return null;
+    
+    // Extract strategies and notes from round data
+    const { att_strategy, def_strategy, notes } = simResult.round_data;
+    
+    return (
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6">Round Strategy Details</Typography>
+          <Divider sx={{ my: 1 }} />
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle1" fontWeight="bold">Attacker Strategy:</Typography>
+              <Chip 
+                label={att_strategy || "Unknown"} 
+                color="primary" 
+                sx={{ my: 1 }} 
+              />
+              <Typography variant="body2">
+                {getStrategyDescription(att_strategy || "")}
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle1" fontWeight="bold">Defender Strategy:</Typography>
+              <Chip 
+                label={def_strategy || "Unknown"} 
+                color="secondary" 
+                sx={{ my: 1 }} 
+              />
+              <Typography variant="body2">
+                {getStrategyDescription(def_strategy || "")}
+              </Typography>
+            </Grid>
+          </Grid>
+          
+          {notes && notes.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle1" fontWeight="bold">Round Notes:</Typography>
+              <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+                {notes.map((note: string, index: number) => (
+                  <Box component="li" key={index}>
+                    <Typography variant="body2">{note}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+  
+  // Helper function to get strategy descriptions
+  const getStrategyDescription = (strategy: string): string => {
+    const descriptions: Record<string, string> = {
+      "aggressive_push": "Launch a fast, coordinated attack on a single site with minimal information gathering.",
+      "split_push": "Attack from multiple entry points simultaneously to divide defender attention.",
+      "fast_execute": "Quick, coordinated site take with pre-set utility usage.",
+      "default": "Standard approach with map control before deciding on a site to attack.",
+      "eco": "Conservative play with minimal investment, looking for picks and economic damage.",
+      "semi_buy": "Medium investment round with limited utility and weapons.",
+      "full_buy": "Full equipment with optimal weapons and utility.",
+      "stack_a": "Focus defensive resources on A site, leaving other areas with minimal coverage.",
+      "stack_b": "Focus defensive resources on B site, leaving other areas with minimal coverage.",
+      "balanced_defense": "Even distribution of defenders across all sites.",
+      "passive_defense": "Playing from safe positions, giving up map control until site defense.",
+      "aggressive_defense": "Pushing forward to gain information and control of key map areas.",
+      "mixed_defense": "Combination of aggressive and passive elements across the map."
     };
+    
+    return descriptions[strategy] || "Custom strategy approach.";
   };
 
   if (simResult) {
@@ -387,17 +318,22 @@ const RoundPlayByPlayDemo: React.FC = () => {
           <Typography variant="h6">
             Winner: {simResult.round_data.winner === 'team_a' ? teamAName : teamBName}
           </Typography>
-          <Typography variant="body1" gutterBottom>
-            {simResult.round_data.events.length} events recorded during the round
-          </Typography>
+          
+          {simResult.round_data.summary && (
+            <Typography variant="body1" sx={{ fontStyle: 'italic', my: 1 }}>
+              {simResult.round_data.summary}
+            </Typography>
+          )}
           
           <Grid container spacing={2} sx={{ mt: 2 }}>
             <Grid item xs={6}>
               <Card>
                 <CardContent>
                   <Typography variant="h6">{teamAName}</Typography>
-                  <Typography>Final Economy: ${simResult.round_data.economy.team_a}</Typography>
-                  <Typography>Loss Streak: {simResult.round_data.loss_streaks.team_a}</Typography>
+                  <Typography>Final Economy: ${simResult.round_data.economy?.team_a}</Typography>
+                  <Typography>
+                    Strategy: {simResult.round_data.att_strategy || simResult.round_data.def_strategy || "Unknown"}
+                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -405,12 +341,25 @@ const RoundPlayByPlayDemo: React.FC = () => {
               <Card>
                 <CardContent>
                   <Typography variant="h6">{teamBName}</Typography>
-                  <Typography>Final Economy: ${simResult.round_data.economy.team_b}</Typography>
-                  <Typography>Loss Streak: {simResult.round_data.loss_streaks.team_b}</Typography>
+                  <Typography>Final Economy: ${simResult.round_data.economy?.team_b}</Typography>
+                  <Typography>
+                    Strategy: {simResult.round_data.att_strategy || simResult.round_data.def_strategy || "Unknown"}
+                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
           </Grid>
+          
+          <Button 
+            variant="outlined" 
+            color="primary" 
+            onClick={() => setShowStrategyDetails(!showStrategyDetails)} 
+            sx={{ mt: 2 }}
+          >
+            {showStrategyDetails ? "Hide Strategy Details" : "Show Strategy Details"}
+          </Button>
+          
+          {showStrategyDetails && renderStrategyDetails()}
           
           <Button 
             variant="contained" 
