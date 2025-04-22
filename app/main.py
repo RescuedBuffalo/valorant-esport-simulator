@@ -179,12 +179,6 @@ async def alt_get_team(team_name: str):
 @app.post("/matches/")
 async def alt_simulate_match(match_data: MatchCreate):
     """Simulate a match between two teams (compatibility with old API)."""
-    if match_data.team_a not in game_sim.teams or match_data.team_b not in game_sim.teams:
-        raise HTTPException(status_code=404, detail="One or both teams not found")
-    
-    if match_data.team_a == match_data.team_b:
-        raise HTTPException(status_code=400, detail="Cannot simulate match between same team")
-    
     try:
         match_result = game_sim.simulate_match(match_data.team_a, match_data.team_b)
         return {"status": "success", "result": match_result}
